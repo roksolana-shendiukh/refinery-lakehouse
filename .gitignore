@@ -1,0 +1,10 @@
+.databricks/
+scratch/
+
+.mcp.json
+.ai-dev-kit/
+.claude/settings.local.json
+.claude/skills/
+
+.idea/
+.DS_Store
