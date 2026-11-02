@@ -1,0 +1,26 @@
+bundle:
+  name: refinery
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for all layers
+  schema_prefix:
+    description: Prefix for schema names, empty in DEV and "refinery_" in PROD
+    default: ""
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-72291aa5-f437.cloud.databricks.com
+    variables:
+      catalog: refinery_dev
+
+  prod:
+    mode: production
+    workspace:
+      host: https://adb-7405604651938730.10.azuredatabricks.net
+    variables:
+      catalog: dbr_dev
+      schema_prefix: refinery_
