@@ -1,0 +1,18 @@
+resources:
+  schemas:
+    bronze:
+      catalog_name: ${var.catalog}
+      name: ${var.schema_prefix}bronze
+      comment: Raw EIA data as ingested, append-only
+    silver:
+      catalog_name: ${var.catalog}
+      name: ${var.schema_prefix}silver
+      comment: Cleaned and validated data, quarantine tables
+    gold:
+      catalog_name: ${var.catalog}
+      name: ${var.schema_prefix}gold
+      comment: Star schema for analytics, filtered and masked by access policy
+    security:
+      catalog_name: ${var.catalog}
+      name: ${var.schema_prefix}security
+      comment: Access policy table, row filter and column mask functions
