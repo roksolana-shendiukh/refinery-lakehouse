@@ -1,6 +1,9 @@
 bundle:
   name: refinery
 
+include:
+  - resources/*.yml
+
 variables:
   catalog:
     description: Unity Catalog catalog for all layers
