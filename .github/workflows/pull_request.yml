@@ -24,12 +24,16 @@ jobs:
           java-version: "17"
 
       - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
 
       - name: Install dependencies
         run: uv sync --locked
 
       - name: Lint
-        run: uv run ruff check src tests
+        run: |
+          uv run ruff check src tests
+          uv run ruff format --check src tests
 
       - name: Unit tests
         run: uv run pytest -v
