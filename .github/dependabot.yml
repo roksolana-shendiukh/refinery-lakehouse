@@ -17,4 +17,10 @@ updates:
     groups:
       python-minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # pyspark must match the Spark version of Databricks serverless
+      # (environment version 6 = DBR 19 = Spark 4.2). It is updated by hand
+      # together with the environment version; only patch releases come automatically.
+      - dependency-name: "pyspark"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     open-pull-requests-limit: 3
