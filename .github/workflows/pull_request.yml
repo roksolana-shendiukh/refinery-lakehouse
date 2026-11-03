@@ -37,3 +37,22 @@ jobs:
 
       - name: Unit tests
         run: uv run pytest -v
+
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: dev
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_AUTH_TYPE: oauth-m2m
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: databricks/setup-cli@main
+        with:
+          version: 0.278.0
+
+      - name: Validate the bundle for DEV
+        run: databricks bundle validate -t dev
