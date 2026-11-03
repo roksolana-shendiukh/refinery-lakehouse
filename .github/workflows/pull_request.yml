@@ -39,6 +39,7 @@ jobs:
         run: uv run pytest -v
 
   validate:
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: dev
