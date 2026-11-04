@@ -1,0 +1,10 @@
+area_bk,area_name,area_level,parent_area_bk,is_coastal
+NUS,U.S.,country,,true
+R10,PADD 1 (East Coast),region,NUS,true
+R1X,PADD 1A (New England),subregion,R10,true
+R1Y,PADD 1B (Central Atlantic),subregion,R10,true
+R1Z,PADD 1C (Lower Atlantic),subregion,R10,true
+R20,PADD 2 (Midwest),region,NUS,false
+R30,PADD 3 (Gulf Coast),region,NUS,true
+R40,PADD 4 (Rocky Mountain),region,NUS,false
+R50,PADD 5 (West Coast),region,NUS,true

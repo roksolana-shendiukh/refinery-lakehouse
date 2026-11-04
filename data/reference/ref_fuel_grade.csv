@@ -1,0 +1,13 @@
+grade_bk,grade_name,source_unit,product_bk
+GASOLINE,Gasoline (all grades),$/GAL,EPM0F
+REGULAR,Regular gasoline,$/GAL,EPM0F
+MIDGRADE,Midgrade gasoline,$/GAL,EPM0F
+PREMIUM,Premium gasoline,$/GAL,EPM0F
+ULSD,Ultra-low sulfur diesel,$/GAL,EPD0
+HEATING_OIL,No. 2 heating oil,$/GAL,EPD0
+JET_FUEL,Kerosene-type jet fuel,$/GAL,EPJK
+PROPANE,Propane,$/GAL,EPLLPZ
+REGULAR_RFG,Reformulated regular gasoline,$/GAL,EPM0F
+CARB_DIESEL,CARB diesel (California ULSD),$/GAL,EPD0
+WTI,WTI crude oil,$/BBL,
+BRENT,Brent crude oil,$/BBL,
