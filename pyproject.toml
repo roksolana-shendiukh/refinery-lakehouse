@@ -12,6 +12,15 @@ dev = [
     "pyspark>=4.2.1,<4.3",
     "ruff",
 ]
+producer = [
+    "databricks-zerobus-ingest-sdk>=1.11,<2",
+    "protobuf>=5",
+    "grpcio-tools>=1.66",
+    "websockets>=13",
+]
+
+[tool.uv]
+default-groups = ["dev", "producer"]
 
 [build-system]
 requires = ["hatchling"]
