@@ -10,6 +10,9 @@ variables:
   schema_prefix:
     description: Prefix for schema names, empty in DEV and "refinery_" in PROD
     default: ""
+  prod_service_principal:
+    description: Application ID of refinery-prod-ci, the identity that deploys and runs PROD
+    default: ""
 
 targets:
   dev:
@@ -24,6 +27,10 @@ targets:
     mode: production
     workspace:
       host: https://adb-7405604651938730.10.azuredatabricks.net
+      root_path: /Workspace/Users/${var.prod_service_principal}/.bundle/${bundle.name}/${bundle.target}
+    run_as:
+      service_principal_name: ${var.prod_service_principal}
     variables:
       catalog: dbr_dev_ua5816bd
       schema_prefix: refinery_
+      prod_service_principal: 1f13aa19-fd45-453f-953b-bf15bf389d48
