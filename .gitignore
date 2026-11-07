@@ -1,3 +1,4 @@
+# Python
 __pycache__/
 *.py[cod]
 .venv/
@@ -9,16 +10,34 @@ dist/
 build/
 *.egg-info/
 
+# Local environment and secrets
 .env
 .env.*
 
+# Databricks
 .databricks/
 scratch/
 
+# Terraform
+infra/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+.terraformrc
+terraform.rc
+
+# Local AIS recordings (large, never committed)
+ais_us_sample*.jsonl
+us_tanker_positions.csv
+
+# Local AI tooling
 .mcp.json
 .ai-dev-kit/
 .claude/settings.local.json
 .claude/skills/
 
+# Editors and OS
 .idea/
 .DS_Store
