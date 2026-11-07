@@ -1,0 +1,7 @@
+syntax = "proto2";
+
+message AisMessage {
+	required int64 received_at = 1;
+	required string message_type = 2;
+	required string raw_message = 3;
+}
