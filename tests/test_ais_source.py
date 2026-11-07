@@ -1,11 +1,11 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from ais_producer.ais_source import AisSourceError, parse, subscription
 
 TYPES = ("PositionReport", "ShipStaticData")
-NOW = datetime(2026, 11, 7, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
 POSITION = '{"MessageType": "PositionReport", "MetaData": {"MMSI": 538001234}, "Message": {}}'
 
 

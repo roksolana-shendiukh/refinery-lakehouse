@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 DEFAULT_AISSTREAM_URL = "wss://stream.aisstream.io/v0/stream"
 
 US_COASTS = (
-    ((24.0, -82.0), (45.5, -66.0)),  
-    ((24.0, -98.0), (31.0, -82.0)), 
-    ((32.0, -125.5), (49.0, -117.0)), 
+    ((24.0, -82.0), (45.5, -66.0)),
+    ((24.0, -98.0), (31.0, -82.0)),
+    ((32.0, -125.5), (49.0, -117.0)),
 )
 
 MESSAGE_TYPES = ("PositionReport", "ShipStaticData")

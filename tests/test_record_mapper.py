@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -9,7 +9,7 @@ RAW = '{"MessageType": "PositionReport", "MetaData": {"MMSI": 538001234}, "Messa
 
 
 def test_epoch_micros_is_exact():
-    moment = datetime(2026, 11, 7, 12, 0, 0, 123456, tzinfo=timezone.utc)
+    moment = datetime(2026, 11, 7, 12, 0, 0, 123456, tzinfo=UTC)
 
     assert to_epoch_micros(moment) == 1_794_052_800_123_456
 
@@ -21,7 +21,7 @@ def test_naive_time_is_rejected():
 
 def test_record_keeps_the_message_unchanged():
     envelope = AisEnvelope(
-        received_at=datetime(1970, 1, 1, 0, 0, 1, tzinfo=timezone.utc),
+        received_at=datetime(1970, 1, 1, 0, 0, 1, tzinfo=UTC),
         message_type="PositionReport",
         raw=RAW,
     )
@@ -34,7 +34,7 @@ def test_record_keeps_the_message_unchanged():
 
 
 def test_record_round_trips_through_protobuf_bytes():
-    envelope = AisEnvelope(datetime(2026, 11, 7, tzinfo=timezone.utc), "ShipStaticData", RAW)
+    envelope = AisEnvelope(datetime(2026, 11, 7, tzinfo=UTC), "ShipStaticData", RAW)
     record = to_record(envelope)
 
     restored = type(record).FromString(record.SerializeToString())

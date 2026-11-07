@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ais_producer.ack_callback import ProducerAckCallback
 from ais_producer.ais_source import AisEnvelope
@@ -54,7 +54,7 @@ def make_sink() -> tuple[ZerobusSink, FakeSdk]:
 def test_send_queues_serialized_records():
     sink, sdk = make_sink()
     sink.open()
-    record = to_record(AisEnvelope(datetime(2026, 11, 8, tzinfo=timezone.utc), "PositionReport", "{}"))
+    record = to_record(AisEnvelope(datetime(2026, 11, 8, tzinfo=UTC), "PositionReport", "{}"))
 
     offset = sink.send(record)
 

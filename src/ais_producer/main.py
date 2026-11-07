@@ -5,7 +5,10 @@ import logging
 import sys
 from dataclasses import dataclass
 
+from zerobus.sdk.shared import ZerobusException
+
 from ais_producer.ack_callback import ProducerAckCallback
+from ais_producer.ais_message_pb2 import AisMessage
 from ais_producer.ais_source import AisSourceError, read_messages
 from ais_producer.config import ConfigError, ProducerConfig
 from ais_producer.error_policy import Action, decide
@@ -47,13 +50,17 @@ async def heartbeat(callback: ProducerAckCallback, sink: ZerobusSink, progress: 
                 log.info("Zerobus stream healthy again after recreate")
 
 
-def send_with_policy(sink: ZerobusSink, record) -> bool:
-    """Sends one record; on an unrecoverable SDK error follows error_policy. False means stop."""
+def send_with_policy(sink: ZerobusSink, record: AisMessage) -> bool:
+    """Sends one record; on an unrecoverable Zerobus error follows error_policy. False means stop.
+
+    Only Zerobus errors are handled here (NonRetriableException is a subclass of ZerobusException).
+    Any other exception is a bug: it is not caught, so the producer stops with a traceback.
+    """
     while True:
         try:
             sink.send(record)
             return True
-        except Exception as error:
+        except ZerobusException as error:
             action = decide(error, sink.recreated)
             if action is Action.RECREATE_STREAM:
                 log.warning("Zerobus stream failed (%s); recreating it once", error)
@@ -88,7 +95,7 @@ async def run(config: ProducerConfig) -> int:
         beat.cancel()
         try:
             sink.close()  # flushes: queued records become durable before exit
-        except Exception as error:
+        except ZerobusException as error:
             log.error("Closing the Zerobus stream failed: %s", error)
     return EXIT_OK
 

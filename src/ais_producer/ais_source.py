@@ -4,7 +4,7 @@ import json
 import logging
 from collections.abc import AsyncIterator, Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import websockets
 
@@ -68,7 +68,7 @@ async def read_messages(
             await websocket.send(request)
             log.info("Subscribed to aisstream")
             async for frame in websocket:
-                envelope = parse(frame, message_types, datetime.now(timezone.utc))
+                envelope = parse(frame, message_types, datetime.now(UTC))
                 if envelope is not None:
                     yield envelope
         except websockets.ConnectionClosed as error:

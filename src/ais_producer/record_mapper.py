@@ -1,11 +1,11 @@
 """Converts an AIS envelope into the Protobuf record of the landing table. Pure functions, no network."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from ais_producer.ais_message_pb2 import AisMessage
 from ais_producer.ais_source import AisEnvelope
 
-EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 ONE_MICROSECOND = timedelta(microseconds=1)
 
 
