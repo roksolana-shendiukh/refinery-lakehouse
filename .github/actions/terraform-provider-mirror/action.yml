@@ -1,0 +1,54 @@
+name: Mirror the Databricks Terraform provider
+description: >-
+  Downloads the Databricks provider version pinned in the lock file through the GitHub API into a
+  local filesystem mirror, so terraform init does not depend on github.com release URLs.
+  Terraform still verifies the package against the hashes in the lock file.
+
+inputs:
+  lock-file:
+    description: Terraform lock file that pins the provider version
+    default: infra/.terraform.lock.hcl
+  token:
+    description: Token for GitHub API calls (raises the rate limit on shared runners)
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Download the provider into a filesystem mirror
+      shell: bash
+      env:
+        LOCK_FILE: ${{ inputs.lock-file }}
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        version=$(awk '/provider "registry.terraform.io\/databricks\/databricks"/ {found=1}
+                       found && $1 == "version" {gsub(/"/, "", $3); print $3; exit}' "$LOCK_FILE")
+        [ -n "$version" ] || { echo "No databricks provider version in $LOCK_FILE"; exit 1; }
+
+        asset="terraform-provider-databricks_${version}_linux_amd64.zip"
+        mirror="$RUNNER_TEMP/terraform-mirror"
+        target="$mirror/registry.terraform.io/databricks/databricks"
+        mkdir -p "$target"
+        retry=(--retry 5 --retry-all-errors --retry-delay 10)
+
+        release=$(curl -fsSL "${retry[@]}" -H "Authorization: Bearer $GH_TOKEN" \
+          "https://api.github.com/repos/databricks/terraform-provider-databricks/releases/tags/v${version}")
+        url=$(jq -r --arg name "$asset" '.assets[] | select(.name == $name) | .url' <<< "$release")
+        [ -n "$url" ] || { echo "Asset $asset not found in release v${version}"; exit 1; }
+        curl -fsSL "${retry[@]}" -o "$target/$asset" \
+          -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" "$url"
+
+        cat > "$RUNNER_TEMP/terraform.rc" <<EOF
+        provider_installation {
+          filesystem_mirror {
+            path    = "$mirror"
+            include = ["registry.terraform.io/databricks/databricks"]
+          }
+          direct {
+            exclude = ["registry.terraform.io/databricks/databricks"]
+          }
+        }
+        EOF
+        echo "TF_CLI_CONFIG_FILE=$RUNNER_TEMP/terraform.rc" >> "$GITHUB_ENV"
+        echo "Databricks provider v${version} mirrored at $target"
