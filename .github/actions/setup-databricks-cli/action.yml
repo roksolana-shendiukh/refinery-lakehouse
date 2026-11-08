@@ -1,48 +1,38 @@
 name: Set up Databricks CLI
 description: >-
-  Installs a pinned Databricks CLI release through the GitHub API (works when github.com download
-  URLs fail), retries on errors and verifies the published checksum.
+  Provides the Databricks CLI from its official Docker image (ghcr.io/databricks/cli), which includes
+  Terraform and the Databricks provider, so bundle commands download nothing from github.com.
 
 inputs:
   version:
-    description: Databricks CLI version, e.g. 0.296.1
+    description: Databricks CLI version = image tag, e.g. 0.296.1
     required: true
-  token:
-    description: Token for GitHub API calls (raises the rate limit on shared runners)
-    default: ${{ github.token }}
 
 runs:
   using: composite
   steps:
-    - name: Download, verify and install the Databricks CLI
+    - name: Pull the Databricks CLI image and put a databricks wrapper on the PATH
       shell: bash
       env:
-        VERSION: ${{ inputs.version }}
-        GH_TOKEN: ${{ inputs.token }}
+        IMAGE: ghcr.io/databricks/cli:${{ inputs.version }}
       run: |
         set -euo pipefail
-        archive="databricks_cli_${VERSION}_linux_amd64.zip"
-        sums="databricks_cli_${VERSION}_SHA256SUMS"
+        for attempt in 1 2 3; do
+          docker pull --quiet "$IMAGE" && break
+          [ "$attempt" -eq 3 ] && exit 1
+          echo "docker pull failed (attempt $attempt of 3), retrying in 15 s"; sleep 15
+        done
+
         dir="$RUNNER_TEMP/databricks-cli"
-        mkdir -p "$dir" && cd "$dir"
-        retry=(--retry 5 --retry-all-errors --retry-delay 10)
-
-        # The release's file list comes from the GitHub API, not from github.com pages.
-        release=$(curl -fsSL "${retry[@]}" -H "Authorization: Bearer $GH_TOKEN" \
-          "https://api.github.com/repos/databricks/cli/releases/tags/v${VERSION}")
-
-        download() {
-          local url
-          url=$(jq -r --arg name "$1" '.assets[] | select(.name == $name) | .url' <<< "$release")
-          [ -n "$url" ] || { echo "Asset $1 not found in release v${VERSION}"; exit 1; }
-          curl -fsSL "${retry[@]}" -o "$1" \
-            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" "$url"
-        }
-        download "$archive"
-        download "$sums"
-
-        # Install only what matches the published checksum.
-        grep " ${archive}\$" "$sums" | sha256sum --check -
-        unzip -q -o "$archive"
+        mkdir -p "$dir"
+        # The wrapper runs the CLI inside the image, in the current directory, with the Databricks credentials.
+        cat > "$dir/databricks" <<EOF
+        #!/usr/bin/env bash
+        exec docker run --rm -i \
+          -v "\$PWD:\$PWD" -w "\$PWD" \
+          -e DATABRICKS_HOST -e DATABRICKS_CLIENT_ID -e DATABRICKS_CLIENT_SECRET -e DATABRICKS_AUTH_TYPE \
+          "$IMAGE" "\$@"
+        EOF
+        chmod +x "$dir/databricks"
         echo "$dir" >> "$GITHUB_PATH"
         "$dir/databricks" --version
