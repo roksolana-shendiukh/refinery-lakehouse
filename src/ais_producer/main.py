@@ -74,7 +74,12 @@ async def run(config: ProducerConfig) -> int:
     callback = ProducerAckCallback()
     sink = ZerobusSink(config, callback)
     progress = Progress()
-    sink.open()
+    try:
+        sink.open()
+    except ZerobusException as error:
+        # The SDK already retried stream creation; at startup there is no stream to recreate.
+        log.error("Stopping: could not open the Zerobus stream: %s", error)
+        return EXIT_STOPPED_ON_ERROR
     beat = asyncio.create_task(heartbeat(callback, sink, progress, config.heartbeat_seconds))
     try:
         async for envelope in read_messages(
