@@ -104,6 +104,7 @@ async def run(config: ProducerConfig) -> int:
             log.error("Closing the Zerobus stream failed: %s", error)
     return EXIT_OK
 
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     try:
