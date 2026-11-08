@@ -1,4 +1,4 @@
-command: ["streamlit", "run", "app.py"]
+command: ["gunicorn", "app:server", "--config", "gunicorn.conf.py"]
 
 env:
   - name: DATABRICKS_WAREHOUSE_ID
@@ -15,3 +15,7 @@ env:
     value: "3600"
   - name: FRESH_MINUTES
     value: "10"
+  - name: MAP_TILE_URL
+    value: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+  - name: MAP_TILE_ATTRIBUTION
+    value: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'

@@ -1,5 +1,5 @@
 import pytest
-from views import COAST_CAMERAS, MAX_ZOOM, MIN_ZOOM, coast_camera, terminal_camera, zoomed
+from views import ALL_COASTS, COAST_CAMERAS, coast_camera
 from zones import ZoneShapeError, bounds, parse_polygon
 
 HOUSTON = "POLYGON((-95.3 29.6, -94.95 29.6, -94.95 29.82, -95.3 29.82, -95.3 29.6))"
@@ -26,21 +26,11 @@ def test_bounds_center_and_span():
 
 
 def test_unknown_coast_falls_back_to_all_coasts():
-    assert coast_camera(None) == COAST_CAMERAS["All coasts"]
-    assert coast_camera("Arctic") == COAST_CAMERAS["All coasts"]
+    assert coast_camera(None) == COAST_CAMERAS[ALL_COASTS]
+    assert coast_camera("Arctic") == COAST_CAMERAS[ALL_COASTS]
 
 
-def test_zoom_stays_within_limits():
-    camera = coast_camera("Gulf")
+def test_camera_viewport_flies_to_the_coast():
+    gulf = coast_camera("Gulf")
 
-    assert zoomed(camera, 1).zoom == camera.zoom + 1
-    assert zoomed(camera, 100).zoom == MAX_ZOOM
-    assert zoomed(camera, -100).zoom == MIN_ZOOM
-    assert zoomed(camera, 1).latitude == camera.latitude
-
-
-def test_terminal_camera_centres_on_the_zone():
-    camera = terminal_camera(bounds(parse_polygon(HOUSTON)))
-
-    assert (camera.longitude, camera.latitude) == pytest.approx((-95.125, 29.71))
-    assert 7 <= camera.zoom <= 11
+    assert gulf.viewport() == {"center": [gulf.latitude, gulf.longitude], "zoom": gulf.zoom, "transition": "flyTo"}

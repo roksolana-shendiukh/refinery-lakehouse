@@ -1,10 +1,9 @@
-import json
-
 import pandas as pd
-from map_view import build_deck, tanker_rows, zone_rows
+from callbacks import HIDDEN_PANE, clicked_port, fit_viewport, pane_classes
+from layout import TERMINALS_TAB, chips, most_congested_text
+from map_layers import tanker_markers, zone_bounds, zone_shapes
 from summary import summarize
-from terminals_view import table_frame
-from views import coast_camera
+from terminals_table import MIN_BAR_PERCENT, bar_percent, table, table_frame
 
 TERMINALS = pd.DataFrame(
     [
@@ -80,57 +79,93 @@ def test_summary_counts_statuses_and_finds_the_busiest_terminal():
     summary = summarize(TANKERS, TERMINALS)
 
     assert (summary.tankers, summary.underway, summary.waiting, summary.at_berth) == (4, 1, 2, 1)
-    assert (summary.most_congested, summary.most_congested_waiting) == ("Houston Ship Channel", 9)
+    assert most_congested_text(summary) == "Most congested: Houston Ship Channel · 9 waiting"
+    assert len(chips(summary)) == 4
 
 
 def test_summary_without_waiting_tankers_has_no_most_congested():
-    quiet = TERMINALS.assign(waiting=0)
+    summary = summarize(TANKERS.iloc[0:0], TERMINALS.assign(waiting=0))
 
-    assert summarize(TANKERS.iloc[0:0], quiet).most_congested is None
-
-
-def test_zone_rows_skip_bad_shapes_and_colour_by_level():
-    rows = {row["port_bk"]: row for row in zone_rows(ZONES, TERMINALS, highlighted=None, zoom=3.4)}
-
-    assert set(rows) == {"HOU", "SAB", "BOS"}
-    assert rows["HOU"]["show_label"] and rows["HOU"]["label"] == "Houston Ship Channel · 9 waiting"
-    assert not rows["SAB"]["show_label"]  # elevated zones are labelled only when zoomed in
-    assert not rows["BOS"]["show_label"]
+    assert summary.most_congested is None
+    assert most_congested_text(summary) == ""
 
 
-def test_zone_rows_label_elevated_when_zoomed_in_and_the_highlighted_terminal():
-    rows = {row["port_bk"]: row for row in zone_rows(ZONES, TERMINALS, highlighted="BOS", zoom=6)}
+def test_markers_have_stable_ids_so_a_refresh_updates_them_in_place():
+    markers = tanker_markers(TANKERS, fresh_minutes=10)
 
-    assert rows["SAB"]["show_label"]
-    assert rows["BOS"]["show_label"]
-
-
-def test_tanker_rows_keep_only_layer_columns():
-    rows = tanker_rows(TANKERS, fresh_minutes=10)
-
-    assert list(rows.columns) == ["longitude", "latitude", "fill", "line", "radius", "line_width", "tooltip"]
-    assert rows["line_width"].tolist() == [2.5, 2.5, 1, 1]
+    assert [marker.id for marker in markers] == ["tanker-1", "tanker-2", "tanker-3", "tanker-4"]
+    assert markers[0].center == [29.7, -95.1]
 
 
-def test_deck_uses_pixel_units_and_the_camera():
-    deck = json.loads(build_deck(TANKERS, TERMINALS, ZONES, coast_camera("Gulf"), fresh_minutes=10).to_json())
-    tankers = next(layer for layer in deck["layers"] if layer["id"] == "tankers")
+def test_markers_skip_rows_without_a_position():
+    rows = pd.DataFrame([tanker(1, "underway", latitude=None)])
 
-    # A plain string would be read as a column name ("@@=pixels"), and markers would scale with zoom.
-    assert tankers["radiusUnits"] == "pixels"
-    assert deck["initialViewState"]["zoom"] == coast_camera("Gulf").zoom
+    assert tanker_markers(rows, fresh_minutes=10) == []
 
 
-def test_deck_with_no_data_still_builds():
-    deck = build_deck(TANKERS.iloc[0:0], TERMINALS.iloc[0:0], ZONES.iloc[0:0], coast_camera(None), fresh_minutes=10)
+def test_zone_shapes_skip_bad_boundaries_and_use_lat_lon_order():
+    shapes = {shape.id: shape for shape in zone_shapes(ZONES, TERMINALS, zoom=4.25, highlighted=None)}
 
-    assert len(deck.layers) == 3
+    assert set(shapes) == {"zone-HOU", "zone-SAB", "zone-BOS"}
+    assert shapes["zone-HOU"].positions[0] == [29.6, -95.3]
+
+
+def test_zone_labels_show_high_always_and_elevated_only_when_zoomed_in():
+    def permanent(zoom, highlighted=None):
+        return {s.id: s.children[0].permanent for s in zone_shapes(ZONES, TERMINALS, zoom, highlighted)}
+
+    assert permanent(4.25) == {"zone-HOU": True, "zone-SAB": False, "zone-BOS": False}
+    assert permanent(7) == {"zone-HOU": True, "zone-SAB": True, "zone-BOS": False}
+    assert permanent(4.25, highlighted="BOS")["zone-BOS"] is True
+
+
+def test_zone_bounds_for_fitting_the_map():
+    assert zone_bounds(ZONES, "HOU") == [[29.6, -95.3], [29.82, -94.95]]
+    assert zone_bounds(ZONES, "BAD") is None
+    assert zone_bounds(ZONES, "XXX") is None
 
 
 def test_terminal_table_is_ranked_and_filtered_by_coast():
-    frame = table_frame(TERMINALS, "All coasts")
-
-    assert frame["port_bk"].tolist() == ["HOU", "SAB", "BOS"]
-    assert frame.loc[0, "coast_label"] == "Gulf · PADD 3"
-    assert frame.loc[0, "level"] == "High"
+    assert table_frame(TERMINALS, "All coasts")["port_bk"].tolist() == ["HOU", "SAB", "BOS"]
     assert table_frame(TERMINALS, "East")["port_bk"].tolist() == ["BOS"]
+
+
+def test_terminal_table_rows_are_clickable_by_port():
+    rows = table(table_frame(TERMINALS, None)).children[1].children
+
+    assert [row.id["port"] for row in rows] == ["HOU", "SAB", "BOS"]
+
+
+def test_empty_terminal_table_says_so():
+    body = table(TERMINALS.iloc[0:0]).children[1]
+
+    assert "No terminal data yet" in str(body)
+
+
+def test_bar_percent():
+    assert bar_percent(9, 9) == 100
+    assert bar_percent(0, 9) == MIN_BAR_PERCENT
+    assert bar_percent(0, 0) == MIN_BAR_PERCENT
+
+
+def test_only_the_selected_pane_is_visible():
+    map_class, terminals_class = pane_classes(TERMINALS_TAB)
+
+    assert map_class == HIDDEN_PANE
+    assert "pane-hidden" not in terminals_class
+    assert "pane-hidden" in pane_classes("Map")[1]
+
+
+def test_clicked_port_ignores_table_redraws():
+    row = {"type": "terminal-row", "port": "HOU"}
+
+    assert clicked_port(row, 1) == "HOU"
+    assert clicked_port(row, 0) is None
+    assert clicked_port("reset-view", 1) is None
+
+
+def test_fit_viewport_flies_to_the_zone():
+    viewport = fit_viewport([[29.6, -95.3], [29.82, -94.95]])
+
+    assert viewport["transition"] == "flyToBounds"
+    assert viewport["bounds"] == [[29.6, -95.3], [29.82, -94.95]]

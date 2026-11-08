@@ -1,5 +1,6 @@
+dash>=4.5,<5
+dash-leaflet>=1.1,<2
+gunicorn>=23
 databricks-sql-connector>=4
 databricks-sdk
 pandas
-pydeck>=0.9
-streamlit>=1.67,<2

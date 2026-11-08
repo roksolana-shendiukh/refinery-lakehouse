@@ -115,3 +115,12 @@ class CachedQuery:
                 log.warning("Live map refresh failed, showing the last good data: %s", error)
                 self._last = Snapshot(rows=self._last.rows, fetched_at=self._last.fetched_at, error=str(error))
             return self._last
+
+
+@dataclass(frozen=True)
+class Sources:
+    """The three live views the app reads, each with its own shared cache."""
+
+    tankers: CachedQuery
+    terminals: CachedQuery
+    zones: CachedQuery

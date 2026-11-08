@@ -1,79 +1,175 @@
-"""Page chrome: the header (title, tabs, coast filter) and the overlays on the map (key figures, legend, badge).
-
-The HTML here is static markup for styling only; every value in it is a number or escaped text.
+"""The page structure: header (title, tabs, coast filter, badge), the map tab with its overlays, and the
+Terminals tab. Built once; callbacks only change the parts that carry an id below.
 """
 
-import html
-from collections.abc import Callable
-
-import streamlit as st
+import dash_leaflet as dl
+from dash import dcc, html
+from settings import AppSettings
 from styling import Freshness
 from summary import Summary
-from views import ALL_COASTS, COAST_CAMERAS
+from views import ALL_COASTS, COASTS, MAX_ZOOM, MIN_ZOOM, coast_camera
 
 MAP_TAB = "Map"
 TERMINALS_TAB = "Terminals"
-TABS = (MAP_TAB, TERMINALS_TAB)
 
-TAB_KEY = "view_tab"
-COAST_KEY = "coast"
+# Component ids used by the callbacks
+VIEW = "view"
+COAST = "coast"
+BADGE = "badge"
+MAP = "map"
+ZONES = "zones-layer"
+TANKERS = "tankers-layer"
+CHIPS = "chips"
+MOST_CONGESTED = "most-congested"
+RESET = "reset-view"
+MAP_PANE = "map-pane"
+TERMINALS_PANE = "terminals-pane"
+TABLE = "terminals-table"
+TICK = "tick"
+HIGHLIGHT = "highlighted-terminal"
 
-LEGEND_HTML = """
-<details class="legend" open>
-  <summary>Legend</summary>
-  <div class="legend-items">
-    <span><i class="mk mk-underway"></i>Underway</span>
-    <span><i class="mk mk-waiting"></i>Waiting at anchor</span>
-    <span><i class="mk mk-berth"></i>At berth</span>
-    <span><i class="zn zn-high"></i>Terminal: high congestion</span>
-    <span><i class="zn zn-elevated"></i>Elevated</span>
-    <span><i class="zn zn-normal"></i>Normal</span>
-    <span class="legend-note">Faded = no update for a while</span>
-  </div>
-</details>
-"""
+LEGEND = html.Details(
+    open=True,
+    className="legend",
+    children=[
+        html.Summary("Legend"),
+        html.Div(
+            className="legend-items",
+            children=[
+                html.Span([html.I(className="mk mk-underway"), "Underway"]),
+                html.Span([html.I(className="mk mk-waiting"), "Waiting at anchor"]),
+                html.Span([html.I(className="mk mk-berth"), "At berth"]),
+                html.Span([html.I(className="zn zn-high"), "Terminal: high congestion"]),
+                html.Span([html.I(className="zn zn-elevated"), "Elevated"]),
+                html.Span([html.I(className="zn zn-normal"), "Normal"]),
+                html.Span("Faded = no update for a while", className="legend-note"),
+            ],
+        ),
+    ],
+)
 
 
-def chip(value: int, label: str, kind: str = "") -> str:
-    return f'<div class="chip {kind}"><b>{value}</b><span>{html.escape(label)}</span></div>'
+def chips(summary: Summary) -> list:
+    def chip(value: int, label: str, kind: str = "") -> html.Div:
+        return html.Div([html.B(value), html.Span(label)], className=f"chip {kind}".strip())
+
+    return [
+        chip(summary.tankers, "tankers"),
+        chip(summary.underway, "underway", "chip-underway"),
+        chip(summary.waiting, "waiting", "chip-waiting"),
+        chip(summary.at_berth, "at berth"),
+    ]
 
 
-def kpi_html(summary: Summary) -> str:
-    return "".join(
-        [
-            chip(summary.tankers, "tankers"),
-            chip(summary.underway, "underway", "chip-underway"),
-            chip(summary.waiting, "waiting", "chip-waiting"),
-            chip(summary.at_berth, "at berth"),
-        ]
-    )
-
-
-def most_congested_label(summary: Summary) -> str | None:
+def most_congested_text(summary: Summary) -> str:
     if summary.most_congested is None:
-        return None
+        return ""
     return f"Most congested: {summary.most_congested} · {summary.most_congested_waiting} waiting"
 
 
-def badge_html(freshness: Freshness) -> str:
-    return f'<span class="badge badge-{freshness.kind}"><i></i>{html.escape(freshness.text)}</span>'
+def badge(fresh: Freshness) -> list:
+    return [html.I(), fresh.text]
 
 
-def render_header(on_coast_change: Callable[[], None]) -> tuple[str, str]:
-    """Draws the header and returns the selected tab and coast."""
-    # Defaults go through Session State (not default=), because callbacks also set these keys.
-    st.session_state.setdefault(TAB_KEY, MAP_TAB)
-    st.session_state.setdefault(COAST_KEY, ALL_COASTS)
-    with st.container(key="app_header", horizontal=True, vertical_alignment="center"):
-        st.markdown('<h1 class="app-title">Refinery · Live tanker traffic</h1>', unsafe_allow_html=True)
-        st.segmented_control("View", TABS, required=True, key=TAB_KEY, label_visibility="collapsed")
-        st.space("stretch")
-        st.segmented_control(
-            "Coast",
-            tuple(COAST_CAMERAS),
-            required=True,
-            key=COAST_KEY,
-            on_change=on_coast_change,
-            label_visibility="collapsed",
-        )
-    return st.session_state[TAB_KEY], st.session_state[COAST_KEY]
+def badge_class(fresh: Freshness) -> str:
+    return f"badge badge-{fresh.kind}"
+
+
+def _segmented(component_id: str, options: tuple[str, ...], value: str, label: str) -> html.Div:
+    """Radio items styled as a segmented control (see assets/style.css); the wrapper names the group."""
+    radios = dcc.RadioItems(
+        id=component_id,
+        options=list(options),
+        value=value,
+        inline=True,
+        className="segmented",
+    )
+    return html.Div(radios, role="group", **{"aria-label": label})
+
+
+def _header() -> html.Header:
+    return html.Header(
+        className="app-header",
+        children=[
+            html.H1("Refinery · Live tanker traffic"),
+            _segmented(VIEW, (MAP_TAB, TERMINALS_TAB), MAP_TAB, "View"),
+            html.Div(className="spacer"),
+            _segmented(COAST, COASTS, ALL_COASTS, "Coast"),
+            html.Span(id=BADGE, className="badge badge-empty", children=[html.I(), "Loading…"]),
+        ],
+    )
+
+
+def _map_pane(settings: AppSettings) -> html.Div:
+    start = coast_camera(ALL_COASTS)
+    return html.Div(
+        id=MAP_PANE,
+        className="pane",
+        children=[
+            dl.Map(
+                id=MAP,
+                center=[start.latitude, start.longitude],
+                zoom=start.zoom,
+                zoomSnap=0.25,
+                minZoom=MIN_ZOOM,
+                maxZoom=MAX_ZOOM,
+                zoomControl=False,
+                preferCanvas=True,
+                trackViewport=True,
+                className="map",
+                children=[
+                    dl.TileLayer(url=settings.tile_url, attribution=settings.tile_attribution),
+                    dl.ZoomControl(position="topright"),
+                    dl.LayerGroup(id=ZONES),
+                    dl.LayerGroup(id=TANKERS),
+                ],
+            ),
+            html.Div(
+                className="overlay-top",
+                children=[
+                    html.Div(id=CHIPS, className="chips"),
+                    html.Button(id=MOST_CONGESTED, className="chip chip-alert", n_clicks=0, hidden=True),
+                ],
+            ),
+            html.Button("⟲", id=RESET, className="reset-view", title="Reset to all U.S. coasts", n_clicks=0),
+            LEGEND,
+        ],
+    )
+
+
+def _terminals_pane() -> html.Div:
+    return html.Div(
+        id=TERMINALS_PANE,
+        className="pane pane-hidden terminals-pane",
+        children=[
+            html.Div(
+                className="terminals-title",
+                children=[
+                    html.H2("Terminal zones, ranked by tankers waiting"),
+                    html.Span("Click a terminal to open it on the map"),
+                ],
+            ),
+            html.Div(id=TABLE, className="table-box"),
+            html.P(
+                "Waiting = at anchor or almost stopped inside the zone · At berth = moored · "
+                "Inbound = destination matches the terminal's port code.",
+                className="terminals-note",
+            ),
+        ],
+    )
+
+
+def page(settings: AppSettings) -> html.Div:
+    return html.Div(
+        className="app",
+        children=[
+            _header(),
+            html.Main(className="app-main", children=[_map_pane(settings), _terminals_pane()]),
+            dcc.Interval(id=TICK, interval=settings.refresh_seconds * 1000),
+            dcc.Store(id=HIGHLIGHT),
+        ],
+    )
+
+
+def not_configured(message: str) -> html.Div:
+    return html.Div(className="app app-error", children=[html.H1("The app is not configured"), html.P(message)])

@@ -1,0 +1,159 @@
+/* Live map look (approved design). Dash loads every file in assets/ automatically. */
+
+:root {
+  --header-h: 60px;
+  --bg: #0B1220;
+  --panel: #0D1526;
+  --panel-2: #111A2B;
+  --line: #1E2A40;
+  --line-2: #22304A;
+  --text: #E6EDF7;
+  --muted: #9AA8BF;
+  --soft: #B7C3D6;
+  --underway: #7CC4FF;
+  --waiting: #FFC266;
+  --high: #FF8A6B;
+  --normal: #3FB6A8;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
+body { font-family: Inter, system-ui, sans-serif; color: var(--text); }
+
+/* Whole window, no page scroll */
+.app { height: 100vh; display: flex; flex-direction: column; }
+.app-main { flex: 1 1 auto; min-height: 0; position: relative; }
+.app-error { padding: 40px; }
+
+/* Header */
+.app-header {
+  flex: 0 0 var(--header-h); display: flex; align-items: center; gap: 16px;
+  padding: 0 20px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.app-header h1 { margin: 0; font: 600 20px "Space Grotesk", Inter, sans-serif; white-space: nowrap; }
+.spacer { flex: 1 1 auto; }
+
+/* Segmented controls: Dash 4 renders radio items as label.dash-options-list-option (.selected when chosen) */
+.segmented { display: inline-flex; gap: 0; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 10px; padding: 3px; }
+.segmented .dash-options-list-option {
+  min-height: 34px; display: inline-flex; align-items: center; margin: 0; padding: 0 14px; border-radius: 8px;
+  color: var(--soft); font-size: 14px; font-weight: 500; cursor: pointer; user-select: none; background: transparent;
+}
+.segmented .dash-options-list-option-wrapper { position: absolute; width: 0; height: 0; overflow: hidden; }
+.segmented .dash-options-list-option-text { padding: 0; }
+.segmented .dash-options-list-option:hover { color: var(--text); }
+.segmented .dash-options-list-option.selected { background: var(--line-2); color: var(--text); }
+.segmented .dash-options-list-option:has(input:focus-visible) { outline: 2px solid var(--underway); outline-offset: 1px; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+  font-size: 13px; white-space: nowrap;
+}
+.badge i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.badge-live { background: #10261F; border: 1px solid #1F5A45; color: #8FE3C1; }
+.badge-live i { background: #3FD69A; }
+.badge-stale { background: #2A2112; border: 1px solid #6B4F1F; color: var(--waiting); }
+.badge-stale i { background: var(--waiting); }
+.badge-empty { background: #1A2336; border: 1px solid #3A4A66; color: var(--muted); }
+.badge-empty i { background: var(--muted); }
+
+/* Tabs: both panes stay mounted; the hidden one keeps its size so the map never re-initialises */
+.pane { position: absolute; inset: 0; }
+.pane-hidden { visibility: hidden; pointer-events: none; }
+
+/* Map */
+.map { position: absolute; inset: 0; background: #0E1A2E; }
+.leaflet-container { background: #0E1A2E; font-family: Inter, system-ui, sans-serif; }
+.leaflet-control-zoom { margin: 16px 16px 0 0 !important; border: 0 !important; }
+.leaflet-control-zoom a {
+  width: 44px !important; height: 44px !important; line-height: 42px !important; margin-bottom: 6px;
+  border-radius: 10px !important; border: 1px solid #2C3D59 !important; background: var(--panel-2) !important;
+  color: var(--text) !important; font: 600 20px Inter, sans-serif !important;
+  display: flex !important; align-items: center; justify-content: center;
+}
+.leaflet-control-attribution { background: rgba(11, 18, 32, 0.75) !important; color: var(--muted) !important; }
+.leaflet-control-attribution a { color: var(--soft) !important; }
+
+.reset-view {
+  position: absolute; top: 116px; right: 16px; z-index: 1000; width: 44px; height: 44px; border-radius: 10px;
+  border: 1px solid #2C3D59; background: var(--panel-2); color: var(--text); font: 600 20px Inter, sans-serif; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+}
+
+/* Key figures, top left over the map */
+.overlay-top {
+  position: absolute; top: 16px; left: 16px; right: 84px; z-index: 1000;
+  display: flex; flex-wrap: wrap; gap: 8px; pointer-events: none;
+}
+.overlay-top > * { pointer-events: auto; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  display: flex; align-items: baseline; gap: 8px; padding: 8px 12px; border-radius: 10px;
+  background: rgba(13, 21, 38, 0.92); border: 1px solid var(--line-2); color: var(--text); font: 14px Inter, sans-serif;
+}
+.chip b { font: 600 20px "Space Grotesk", sans-serif; }
+.chip span { font-size: 13px; color: var(--muted); }
+.chip-underway b { color: var(--underway); }
+.chip-waiting b { color: var(--waiting); }
+.chip-alert { background: rgba(42, 22, 16, 0.94); border-color: #5A2E22; cursor: pointer; font-weight: 500; }
+.chip-alert:hover { border-color: var(--high); }
+
+/* Legend, bottom left over the map */
+.legend {
+  position: absolute; left: 16px; bottom: 24px; z-index: 1000;
+  background: rgba(11, 18, 32, 0.94); border: 1px solid var(--line-2); border-radius: 10px;
+  padding: 8px 12px; font-size: 12px; color: var(--soft);
+}
+.legend summary { cursor: pointer; min-height: 28px; display: flex; align-items: center; font-weight: 600; color: var(--text); }
+.legend-items { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; }
+.legend-items span { display: flex; align-items: center; gap: 8px; }
+.legend-note { color: var(--muted); }
+.mk, .zn { display: inline-block; flex: 0 0 auto; }
+.mk-underway { width: 8px; height: 8px; border-radius: 50%; background: var(--underway); }
+.mk-waiting { width: 8px; height: 8px; border-radius: 50%; border: 2.5px solid var(--waiting); }
+.mk-berth { width: 8px; height: 8px; border-radius: 50%; background: var(--text); }
+.zn { width: 12px; height: 12px; border-radius: 3px; }
+.zn-high { background: rgba(255, 107, 74, 0.35); border: 2px solid var(--high); }
+.zn-elevated { background: rgba(255, 194, 102, 0.28); border: 2px solid var(--waiting); }
+.zn-normal { background: rgba(63, 182, 168, 0.25); border: 2px solid var(--normal); }
+
+/* Tooltips */
+.leaflet-tooltip.tanker-tip {
+  background: var(--bg); color: var(--soft); border: 1px solid #3A4A66; border-radius: 10px;
+  padding: 10px 12px; font-size: 13px; line-height: 1.5; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); min-width: 220px;
+}
+.tt-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.tt-head b { font: 600 15px "Space Grotesk", sans-serif; color: var(--text); }
+.tt-head span { font-size: 12px; color: var(--muted); }
+.leaflet-tooltip.zone-label {
+  background: rgba(11, 18, 32, 0.9); color: var(--text); border: 1px solid #2C3D59; border-radius: 6px;
+  padding: 3px 8px; font-size: 12px; box-shadow: none;
+}
+.leaflet-tooltip-top.tanker-tip::before, .leaflet-tooltip-top.zone-label::before { border-top-color: #3A4A66; }
+
+/* Terminals tab: the table scrolls inside its box, the page does not */
+.terminals-pane { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px 20px; }
+.terminals-title { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; }
+.terminals-title h2 { margin: 0; font: 600 18px "Space Grotesk", sans-serif; }
+.terminals-title span { font-size: 13px; color: var(--muted); }
+.terminals-note { margin: 0; font-size: 12px; color: var(--muted); }
+.table-box {
+  flex: 1 1 auto; min-height: 0; overflow: auto;
+  border: 1px solid var(--line-2); border-radius: 12px; background: var(--panel-2);
+}
+table.terminals { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 14px; }
+table.terminals th {
+  position: sticky; top: 0; z-index: 1; background: #0F1726; color: var(--muted);
+  font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; text-align: left; padding: 12px 16px;
+}
+table.terminals td { padding: 12px 16px; border-top: 1px solid var(--line); }
+table.terminals .num { text-align: right; font-variant-numeric: tabular-nums; }
+table.terminals .name { font-weight: 600; }
+table.terminals .muted { color: var(--soft); }
+table.terminals .inbound { color: var(--underway); }
+.terminal-row { cursor: pointer; }
+.terminal-row:hover { background: #16213A; }
+.level { display: flex; align-items: center; gap: 10px; min-width: 200px; }
+.bar { flex: 1 1 auto; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; display: block; }
+.bar-fill { display: block; height: 6px; }
+.level > span:last-child { width: 64px; font-size: 13px; }

@@ -35,6 +35,8 @@ class AppSettings:
     refresh_seconds: int = 15
     zones_refresh_seconds: int = 3600
     fresh_minutes: int = 10
+    tile_url: str = ""
+    tile_attribution: str = ""
 
     @classmethod
     def from_env(cls) -> "AppSettings":
@@ -46,4 +48,6 @@ class AppSettings:
             refresh_seconds=_positive_int("REFRESH_SECONDS", 15),
             zones_refresh_seconds=_positive_int("ZONES_REFRESH_SECONDS", 3600),
             fresh_minutes=_positive_int("FRESH_MINUTES", 10),
+            tile_url=_required("MAP_TILE_URL"),
+            tile_attribution=_required("MAP_TILE_ATTRIBUTION"),
         )

@@ -6,6 +6,8 @@ REQUIRED = {
     "LIVE_TANKERS_TABLE": "c.s.live_tankers",
     "LIVE_TERMINALS_TABLE": "c.s.live_terminal_congestion",
     "LIVE_ZONES_TABLE": "c.s.live_terminal_zone",
+    "MAP_TILE_URL": "https://tiles.example/{z}/{x}/{y}.png",
+    "MAP_TILE_ATTRIBUTION": "© Example",
 }
 
 
