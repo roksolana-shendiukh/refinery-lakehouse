@@ -29,3 +29,13 @@ variable "live_map_principal" {
   type        = string
   default     = ""
 }
+
+variable "live_map_secret_scope" {
+  description = "Secret scope for the live map app's secrets (the CARTO basemap key)"
+  type        = string
+}
+
+variable "secret_writer" {
+  description = "User who puts secret values into the scope with the CLI (values never go through Terraform)"
+  type        = string
+}
