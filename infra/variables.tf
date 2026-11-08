@@ -18,3 +18,14 @@ variable "ais_producer_principal" {
   type        = string
   default     = ""
 }
+
+variable "live_schema" {
+  description = "Schema of the live serving tables (created by the bundle, not by Terraform)"
+  type        = string
+}
+
+variable "live_map_principal" {
+  description = "Application ID of the live map app's service principal; empty = no grants yet"
+  type        = string
+  default     = ""
+}

@@ -22,3 +22,10 @@ resource "databricks_grant" "producer_landing_table" {
   principal  = var.ais_producer_principal
   privileges = ["SELECT", "MODIFY"]
 }
+
+resource "databricks_grant" "live_map_live_schema" {
+  count      = var.live_map_principal != "" ? 1 : 0
+  schema     = "${var.catalog}.${var.live_schema}"
+  principal  = var.live_map_principal
+  privileges = ["USE_SCHEMA", "SELECT"]
+}
