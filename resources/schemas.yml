@@ -3,7 +3,7 @@ resources:
     bronze:
       catalog_name: ${var.catalog}
       name: ${var.schema_prefix}bronze
-      comment: Raw EIA data as ingested, append-only
+      comment: Raw data as ingested (EIA, reference data, AIS landing table), append-only
     silver:
       catalog_name: ${var.catalog}
       name: ${var.schema_prefix}silver
@@ -16,3 +16,7 @@ resources:
       catalog_name: ${var.catalog}
       name: ${var.schema_prefix}security
       comment: Access policy table, row filter and column mask functions
+    live:
+      catalog_name: ${var.catalog}
+      name: ${var.schema_prefix}live
+      comment: Live AIS serving tables for the live map (current position and static data per ship)
