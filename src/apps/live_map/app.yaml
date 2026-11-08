@@ -1,0 +1,11 @@
+command: ["streamlit", "run", "app.py"]
+
+env:
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+  - name: LIVE_TANKERS_TABLE
+    value: dbr_dev_ua5816bd.refinery_live.live_tankers
+  - name: REFRESH_SECONDS
+    value: "15"
+  - name: FRESH_MINUTES
+    value: "10"

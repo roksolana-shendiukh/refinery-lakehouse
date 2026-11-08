@@ -1,0 +1,33 @@
+name: live-demo-start
+
+# Manual only: deploys the latest live map code from main into the app and starts it.
+# The app runs (and costs) until live-demo-stop is run.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-demo
+  cancel-in-progress: false
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: prod
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_AUTH_TYPE: oauth-m2m
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: databricks/setup-cli@main
+        with:
+          version: 0.296.1
+
+      - name: Deploy the app code and start the live map
+        run: databricks bundle run -t prod live_map

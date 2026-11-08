@@ -61,3 +61,20 @@ targets:
           permissions:
             - level: CAN_MANAGE
               user_name: ${var.operator_user}
+
+      apps:
+        live_map:
+          name: refinery-live-map
+          description: Live map of tankers on the U.S. coasts, from refinery_live.live_tankers
+          source_code_path: ../src/apps/live_map
+          resources:
+            - name: sql-warehouse
+              description: SQL warehouse for the live_tankers query
+              sql_warehouse:
+                id: ${var.warehouse_id}
+                permission: CAN_USE
+          permissions:
+            - level: CAN_MANAGE
+              user_name: ${var.operator_user}
+            - level: CAN_USE
+              group_name: users

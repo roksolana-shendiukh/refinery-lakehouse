@@ -27,7 +27,7 @@ jobs:
 
       - uses: databricks/setup-cli@main
         with:
-          version: 0.297.2
+          version: 0.296.1
 
       - name: Validate the bundle for PROD
         run: databricks bundle validate -t prod
