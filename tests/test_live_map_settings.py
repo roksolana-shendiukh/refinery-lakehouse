@@ -6,7 +6,8 @@ REQUIRED = {
     "LIVE_TANKERS_TABLE": "c.s.live_tankers",
     "LIVE_TERMINALS_TABLE": "c.s.live_terminal_congestion",
     "LIVE_ZONES_TABLE": "c.s.live_terminal_zone",
-    "MAP_TILE_URL": "https://tiles.example/{z}/{x}/{y}.png",
+    "MAP_TILE_URL": "https://tiles.example/{z}/{x}/{y}.png?key={api_key}",
+    "MAP_TILE_KEY": "test-key",
     "MAP_TILE_ATTRIBUTION": "© Example",
 }
 
@@ -41,4 +42,18 @@ def test_refresh_must_be_a_positive_whole_number(env, value):
     env.setenv("REFRESH_SECONDS", value)
 
     with pytest.raises(SettingsError, match="REFRESH_SECONDS"):
+        AppSettings.from_env()
+
+
+def test_tile_key_is_filled_into_the_url_and_kept_out_of_repr(env):
+    settings = AppSettings.from_env()
+
+    assert settings.tile_url == "https://tiles.example/{z}/{x}/{y}.png?key=test-key"
+    assert "test-key" not in repr(settings)
+
+
+def test_tile_url_without_the_key_placeholder_is_an_error(env):
+    env.setenv("MAP_TILE_URL", "https://tiles.example/{z}/{x}/{y}.png")
+
+    with pytest.raises(SettingsError, match="api_key"):
         AppSettings.from_env()

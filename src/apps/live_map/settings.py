@@ -1,7 +1,9 @@
 """Live map settings, read from environment variables set in app.yaml. No values are hardcoded elsewhere."""
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+TILE_KEY_PLACEHOLDER = "{api_key}"
 
 
 class SettingsError(ValueError):
@@ -35,7 +37,7 @@ class AppSettings:
     refresh_seconds: int = 15
     zones_refresh_seconds: int = 3600
     fresh_minutes: int = 10
-    tile_url: str = ""
+    tile_url: str = field(default="", repr=False)  # contains the basemap key: never logged
     tile_attribution: str = ""
 
     @classmethod
@@ -48,6 +50,14 @@ class AppSettings:
             refresh_seconds=_positive_int("REFRESH_SECONDS", 15),
             zones_refresh_seconds=_positive_int("ZONES_REFRESH_SECONDS", 3600),
             fresh_minutes=_positive_int("FRESH_MINUTES", 10),
-            tile_url=_required("MAP_TILE_URL"),
+            tile_url=tile_url_with_key(_required("MAP_TILE_URL"), _required("MAP_TILE_KEY")),
             tile_attribution=_required("MAP_TILE_ATTRIBUTION"),
         )
+
+
+def tile_url_with_key(template: str, key: str) -> str:
+    """The basemap tile URL with the API key filled in. The key comes from the Key Vault secret
+    (app resource carto-key); the template holds {api_key} so the key never sits in app.yaml."""
+    if TILE_KEY_PLACEHOLDER not in template:
+        raise SettingsError(f"MAP_TILE_URL must contain {TILE_KEY_PLACEHOLDER}")
+    return template.replace(TILE_KEY_PLACEHOLDER, key)
