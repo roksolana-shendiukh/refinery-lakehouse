@@ -1,7 +1,9 @@
 # Live AIS path. The landing table itself is infrastructure (infra/landing_table.tf, Terraform).
 # Zerobus runs in PROD only, so everything that reads it exists only in the prod target.
 # The live pipeline is triggered by default: deploys never start it, so it cannot be left running.
-# Switch to continuous: true only for a demo (a PR before, a PR back after).
+# The freshness alert is paused by default: with the producer off it would fire every 15 minutes and
+# keep waking the SQL warehouse.
+# For a demo, one PR sets continuous: true AND pause_status: UNPAUSED; one PR after the demo reverts both.
 targets:
   prod:
     resources:
@@ -34,7 +36,7 @@ targets:
           schedule:
             quartz_cron_schedule: "0 3/15 * * * ?"
             timezone_id: UTC
-            pause_status: UNPAUSED
+            pause_status: PAUSED 
           run_as:
             service_principal_name: ${var.prod_service_principal}
           permissions:
