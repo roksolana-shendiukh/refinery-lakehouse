@@ -1,4 +1,4 @@
-from styling import STALE_ALPHA, STATUS_STYLE, freshness, level_style, marker_style, speed_text, tooltip_html
+from styling import STALE_OPACITY, STATUS_STYLE, freshness, level_style, marker_style, speed_text, tooltip_html
 
 
 def test_recent_positions_keep_the_status_style():
@@ -8,8 +8,15 @@ def test_recent_positions_keep_the_status_style():
 def test_old_or_unknown_positions_are_faded():
     for minutes in (11, None):
         style = marker_style("underway", minutes, fresh_minutes=10)
-        assert style["fill"][3] == STALE_ALPHA
-        assert style["fill"][:3] == STATUS_STYLE["underway"]["fill"][:3]
+        assert style["opacity"] == STALE_OPACITY
+        assert style["fillOpacity"] == STALE_OPACITY
+        assert style["fillColor"] == STATUS_STYLE["underway"]["fillColor"]
+
+
+def test_marker_style_does_not_change_the_shared_style():
+    marker_style("underway", None, fresh_minutes=10)
+
+    assert "opacity" not in STATUS_STYLE["underway"]
 
 
 def test_unknown_status_and_level_fall_back_to_defaults():
