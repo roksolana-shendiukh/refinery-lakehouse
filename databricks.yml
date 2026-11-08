@@ -19,6 +19,9 @@ variables:
   alert_email:
     description: Email that receives monitoring alerts
     default: ""
+  operator_user:
+    description: PROD workspace user who operates live resources (start and stop the live pipeline)
+    default: ""
 
 targets:
   dev:
@@ -44,3 +47,5 @@ targets:
         lookup:
           warehouse: Serverless Starter Warehouse
       alert_email: roksolana.shendiu770@softserve.academy
+      operator_user: roksolana.shendiu770@softserve.academy
+

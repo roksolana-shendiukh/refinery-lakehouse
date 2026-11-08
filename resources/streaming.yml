@@ -1,5 +1,5 @@
 # Live AIS path. The landing table itself is infrastructure (infra/landing_table.tf, Terraform).
-# Zerobus runs in PROD only, so the monitoring for it exists only in the prod target.
+# Zerobus runs in PROD only, so everything that reads it exists only in the prod target.
 targets:
   prod:
     resources:
@@ -38,3 +38,24 @@ targets:
           permissions:
             - level: CAN_MANAGE
               user_name: ${var.alert_email}
+
+      pipelines:
+        ais_live:
+          name: refinery-ais-live
+          catalog: ${var.catalog}
+          schema: ${resources.schemas.live.name}
+          serverless: true
+          continuous: true
+          channel: CURRENT
+          configuration:
+            source_table: ${var.catalog}.${resources.schemas.bronze.name}.zerobus_ais_messages
+          libraries:
+            - file:
+                path: ../src/refinery/live/live_vessel_position.sql
+            - file:
+                path: ../src/refinery/live/live_vessel_info.sql
+            - file:
+                path: ../src/refinery/live/live_tankers.sql
+          permissions:
+            - level: CAN_MANAGE
+              user_name: ${var.operator_user}
