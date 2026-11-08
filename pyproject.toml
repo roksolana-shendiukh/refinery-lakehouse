@@ -18,9 +18,16 @@ producer = [
     "grpcio-tools>=1.66",
     "websockets>=13",
 ]
+app = [
+    "databricks-sql-connector>=4",
+    "databricks-sdk",
+    "pandas",
+    "pydeck",
+    "streamlit",
+]
 
 [tool.uv]
-default-groups = ["dev", "producer"]
+default-groups = ["dev", "producer", "app"]
 
 [build-system]
 requires = ["hatchling"]
