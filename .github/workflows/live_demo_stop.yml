@@ -31,4 +31,7 @@ jobs:
       - name: Stop the live map
         run: |
           app_name=$(databricks bundle summary -t prod -o json | jq -r '.resources.apps.live_map.name')
-          databricks apps stop "$app_name"
+          echo "Stopping app: $app_name"
+          # Inside the bundle folder the CLI picks the workspace from a bundle target:
+          # without -t prod it would use the default target (dev).
+          databricks apps stop "$app_name" -t prod
