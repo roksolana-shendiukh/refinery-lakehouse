@@ -43,4 +43,4 @@ targets:
       warehouse_id:
         lookup:
           warehouse: Serverless Starter Warehouse
-      alert_email: roksolana.shendiukh@gmail.com
+      alert_email: roksolana.shendiu770@softserve.academy
