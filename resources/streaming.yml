@@ -1,5 +1,7 @@
 # Live AIS path. The landing table itself is infrastructure (infra/landing_table.tf, Terraform).
 # Zerobus runs in PROD only, so everything that reads it exists only in the prod target.
+# The live pipeline is triggered by default: deploys never start it, so it cannot be left running.
+# Switch to continuous: true only for a demo (a PR before, a PR back after).
 targets:
   prod:
     resources:
@@ -45,7 +47,7 @@ targets:
           catalog: ${var.catalog}
           schema: ${resources.schemas.live.name}
           serverless: true
-          continuous: true
+          continuous: false
           channel: CURRENT
           configuration:
             source_table: ${var.catalog}.${resources.schemas.bronze.name}.zerobus_ais_messages
