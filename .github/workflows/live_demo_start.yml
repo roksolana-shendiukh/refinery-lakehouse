@@ -27,7 +27,7 @@ jobs:
 
       - uses: databricks/setup-cli@main
         with:
-          version: 0.297.2
+          version: 0.296.1
 
       - name: Deploy the app code and start the live map
         run: databricks bundle run -t prod live_map

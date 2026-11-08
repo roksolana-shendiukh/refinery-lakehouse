@@ -26,7 +26,7 @@ jobs:
 
       - uses: databricks/setup-cli@main
         with:
-          version: 0.297.2
+          version: 0.296.1
 
       - name: Stop the live map
         run: |
