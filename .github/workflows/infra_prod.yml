@@ -6,11 +6,13 @@ on:
     paths:
       - "infra/**"
       - ".github/workflows/infra_prod.yml"
+      - ".github/actions/terraform-provider-mirror/**"
   push:
     branches: [main]
     paths:
       - "infra/**"
       - ".github/workflows/infra_prod.yml"
+      - ".github/actions/terraform-provider-mirror/**"
   workflow_dispatch:
 
 permissions:
@@ -34,6 +36,9 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "~1.13"
+
+      # Provider from a mirror downloaded through the GitHub API (github.com release URLs may time out).
+      - uses: ./.github/actions/terraform-provider-mirror
 
       - name: Check formatting
         run: terraform fmt -check -recursive
@@ -65,6 +70,9 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "~1.13"
+
+      # Provider from a mirror downloaded through the GitHub API (github.com release URLs may time out).
+      - uses: ./.github/actions/terraform-provider-mirror
 
       - name: Initialize with HCP Terraform state
         run: terraform init -input=false
