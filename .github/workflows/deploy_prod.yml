@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: databricks/setup-cli@main
+      - uses: ./.github/actions/setup-databricks-cli
         with:
           version: 0.296.1
 
@@ -33,7 +33,13 @@ jobs:
         run: databricks bundle validate -t prod
 
       - name: Show planned changes
-        run: databricks bundle plan -t prod
+        run: |
+          for attempt in 1 2 3; do
+            databricks bundle plan -t prod && exit 0
+            echo "bundle plan failed (attempt $attempt of 3), retrying in 30 s"
+            sleep 30
+          done
+          exit 1
 
       - name: Deploy the bundle to PROD
         run: databricks bundle deploy -t prod
