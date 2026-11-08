@@ -29,15 +29,21 @@ def _positive_int(name: str, default: int) -> int:
 @dataclass(frozen=True)
 class AppSettings:
     warehouse_id: str
-    table_name: str
+    tankers_table: str
+    terminals_table: str
+    zones_table: str
     refresh_seconds: int = 15
+    zones_refresh_seconds: int = 3600
     fresh_minutes: int = 10
 
     @classmethod
     def from_env(cls) -> "AppSettings":
         return cls(
             warehouse_id=_required("DATABRICKS_WAREHOUSE_ID"),
-            table_name=_required("LIVE_TANKERS_TABLE"),
+            tankers_table=_required("LIVE_TANKERS_TABLE"),
+            terminals_table=_required("LIVE_TERMINALS_TABLE"),
+            zones_table=_required("LIVE_ZONES_TABLE"),
             refresh_seconds=_positive_int("REFRESH_SECONDS", 15),
+            zones_refresh_seconds=_positive_int("ZONES_REFRESH_SECONDS", 3600),
             fresh_minutes=_positive_int("FRESH_MINUTES", 10),
         )

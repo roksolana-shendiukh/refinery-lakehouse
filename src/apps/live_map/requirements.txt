@@ -1,5 +1,5 @@
 databricks-sql-connector>=4
 databricks-sdk
 pandas
-pydeck
-streamlit>=1.37
+pydeck>=0.9
+streamlit>=1.67,<2

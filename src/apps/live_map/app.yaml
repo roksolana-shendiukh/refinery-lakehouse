@@ -5,7 +5,13 @@ env:
     valueFrom: sql-warehouse
   - name: LIVE_TANKERS_TABLE
     value: dbr_dev_ua5816bd.refinery_live.live_tankers
+  - name: LIVE_TERMINALS_TABLE
+    value: dbr_dev_ua5816bd.refinery_live.live_terminal_congestion
+  - name: LIVE_ZONES_TABLE
+    value: dbr_dev_ua5816bd.refinery_live.live_terminal_zone
   - name: REFRESH_SECONDS
     value: "15"
+  - name: ZONES_REFRESH_SECONDS
+    value: "3600"
   - name: FRESH_MINUTES
     value: "10"
