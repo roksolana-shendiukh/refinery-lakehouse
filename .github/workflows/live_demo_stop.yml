@@ -1,0 +1,34 @@
+name: live-demo-stop
+
+# Manual only: stops the live map app, so it costs nothing until the next demo.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-demo
+  cancel-in-progress: false
+
+jobs:
+  stop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: prod
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_AUTH_TYPE: oauth-m2m
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: databricks/setup-cli@main
+        with:
+          version: 0.297.2
+
+      - name: Stop the live map
+        run: |
+          app_name=$(databricks bundle summary -t prod -o json | jq -r '.resources.apps.live_map.name')
+          databricks apps stop "$app_name"
