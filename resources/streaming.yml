@@ -51,13 +51,27 @@ targets:
           channel: CURRENT
           configuration:
             source_table: ${var.catalog}.${resources.schemas.bronze.name}.zerobus_ais_messages
+            # A tanker slower than this (knots) counts as waiting.
+            stationary_speed_knots: "0.5"
+            # Tankers waiting in a zone for the congestion levels high and elevated.
+            congestion_high_waiting: "7"
+            congestion_elevated_waiting: "3"
           libraries:
             - file:
                 path: ../src/refinery/live/live_vessel_position.sql
             - file:
                 path: ../src/refinery/live/live_vessel_info.sql
+            # Generated from data/reference by scripts/generate_live_reference.py
+            - file:
+                path: ../src/refinery/live/live_ref_terminal_zone.sql
+            - file:
+                path: ../src/refinery/live/live_ref_mid.sql
+            - file:
+                path: ../src/refinery/live/live_terminal_zone.sql
             - file:
                 path: ../src/refinery/live/live_tankers.sql
+            - file:
+                path: ../src/refinery/live/live_terminal_congestion.sql
           permissions:
             - level: CAN_MANAGE
               user_name: ${var.operator_user}
