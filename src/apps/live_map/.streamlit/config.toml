@@ -1,0 +1,15 @@
+# Streamlit settings for the live map. Read from the app folder when Databricks Apps runs `streamlit run app.py`.
+[theme]
+base = "dark"
+primaryColor = "#7CC4FF"
+backgroundColor = "#0B1220"
+secondaryBackgroundColor = "#111A2B"
+textColor = "#E6EDF7"
+font = "sans-serif"
+
+[client]
+toolbarMode = "minimal"
+showSidebarNavigation = false
+
+[browser]
+gatherUsageStats = false

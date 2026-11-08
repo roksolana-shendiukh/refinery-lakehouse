@@ -1,6 +1,6 @@
 import pandas as pd
 
-from data import COLUMNS, QueryError, TankerSource, query_for
+from data import TANKER_COLUMNS, CachedQuery, QueryError, select_query
 
 
 class FakeClock:
@@ -15,25 +15,33 @@ class FakeWarehouse:
     def __init__(self) -> None:
         self.calls = 0
         self.fail = False
+        self.queries: list[str] = []
 
     def __call__(self, query: str) -> pd.DataFrame:
         self.calls += 1
+        self.queries.append(query)
         if self.fail:
             raise QueryError("warehouse stopped")
         return pd.DataFrame([{"vessel_name": "SANMAR RAGA", "calls": self.calls}])
 
 
-def make_source() -> tuple[TankerSource, FakeWarehouse, FakeClock]:
+def make_source() -> tuple[CachedQuery, FakeWarehouse, FakeClock]:
     warehouse, clock = FakeWarehouse(), FakeClock()
-    return TankerSource(warehouse, "cat.live.live_tankers", ttl_seconds=15, clock=clock), warehouse, clock
+    source = CachedQuery(warehouse, "cat.live.live_tankers", TANKER_COLUMNS, ttl_seconds=15, clock=clock)
+    return source, warehouse, clock
 
 
-def test_query_reads_only_the_needed_columns():
-    query = query_for("cat.live.live_tankers")
+def test_query_reads_only_the_listed_columns():
+    assert select_query("cat.live.t", ("a", "b")) == "SELECT a, b FROM cat.live.t"
 
-    assert query.startswith("SELECT mmsi, vessel_name")
-    assert "FROM cat.live.live_tankers" in query
-    assert len(COLUMNS) == 12
+
+def test_tanker_query_includes_status_and_zone():
+    source, warehouse, _ = make_source()
+
+    source.snapshot()
+
+    assert "status" in warehouse.queries[0]
+    assert "zone_name" in warehouse.queries[0]
 
 
 def test_viewers_share_one_query_per_interval():
@@ -54,7 +62,7 @@ def test_data_is_refreshed_after_the_interval():
     snapshot = source.snapshot()
 
     assert warehouse.calls == 2
-    assert snapshot.tankers.loc[0, "calls"] == 2
+    assert snapshot.rows.loc[0, "calls"] == 2
 
 
 def test_failed_refresh_keeps_the_last_good_data():
@@ -66,16 +74,17 @@ def test_failed_refresh_keeps_the_last_good_data():
     snapshot = source.snapshot()
 
     assert snapshot.error == "warehouse stopped"
-    assert snapshot.tankers.loc[0, "vessel_name"] == "SANMAR RAGA"
+    assert snapshot.rows.loc[0, "vessel_name"] == "SANMAR RAGA"
     assert snapshot.fetched_at == 0.0
 
 
-def test_failure_before_any_data_gives_an_empty_table_and_the_error():
+def test_failure_before_any_data_gives_an_empty_frame_with_the_columns():
     source, warehouse, _ = make_source()
     warehouse.fail = True
 
     snapshot = source.snapshot()
 
-    assert snapshot.tankers.empty
+    assert snapshot.rows.empty
+    assert list(snapshot.rows.columns) == list(TANKER_COLUMNS)
     assert snapshot.fetched_at is None
     assert snapshot.error == "warehouse stopped"
