@@ -16,6 +16,8 @@ env:
   - name: FRESH_MINUTES
     value: "10"
   - name: MAP_TILE_URL
-    value: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+    value: "https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key={api_key}"
+  - name: MAP_TILE_KEY
+    valueFrom: carto-key
   - name: MAP_TILE_ATTRIBUTION
     value: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'

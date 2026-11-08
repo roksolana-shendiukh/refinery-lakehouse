@@ -87,6 +87,14 @@ targets:
               sql_warehouse:
                 id: ${var.warehouse_id}
                 permission: CAN_USE
+            # The bundle gives the app's service principal READ on the scope. The scope covers the
+            # whole Key Vault, so only service principals get READ, never people.
+            - name: carto-key
+              description: CARTO basemap API key, from Key Vault
+              secret:
+                scope: ${var.secret_scope}
+                key: refinery-live-map-carto-api-key
+                permission: READ
           permissions:
             - level: CAN_MANAGE
               user_name: ${var.operator_user}
