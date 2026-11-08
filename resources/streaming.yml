@@ -1,0 +1,40 @@
+# Live AIS path. The landing table itself is infrastructure (infra/landing_table.tf, Terraform).
+# Zerobus runs in PROD only, so the monitoring for it exists only in the prod target.
+targets:
+  prod:
+    resources:
+      alerts:
+        ais_landing_freshness:
+          display_name: "Refinery: AIS landing table freshness"
+          custom_summary: "AIS landing table: {{QUERY_RESULT_VALUE}} minutes without new data"
+          custom_description: >-
+            The AIS producer has not written to zerobus_ais_messages for more than 20 minutes.
+            Check that the producer is running and look at its last heartbeat log line.
+          query_text: >-
+            SELECT coalesce(timestampdiff(MINUTE, max(received_at), current_timestamp()), 9999)
+              AS minutes_since_last_row
+            FROM ${var.catalog}.${resources.schemas.bronze.name}.zerobus_ais_messages
+          warehouse_id: ${var.warehouse_id}
+          evaluation:
+            source:
+              name: minutes_since_last_row
+              display: minutes_since_last_row
+            comparison_operator: GREATER_THAN
+            threshold:
+              value:
+                double_value: 20
+            empty_result_state: TRIGGERED
+            notification:
+              notify_on_ok: false
+              retrigger_seconds: 0
+              subscriptions:
+                - user_email: ${var.alert_email}
+          schedule:
+            quartz_cron_schedule: "0 3/15 * * * ?"
+            timezone_id: UTC
+            pause_status: UNPAUSED
+          run_as:
+            service_principal_name: ${var.prod_service_principal}
+          permissions:
+            - level: CAN_MANAGE
+              user_name: ${var.alert_email}
