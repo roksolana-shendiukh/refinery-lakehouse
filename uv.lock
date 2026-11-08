@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -1433,12 +1433,12 @@ wheels = [
 
 [[package]]
 name = "pyspark"
-version = "4.2.1"
+version = "4.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "py4j" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ee/ed/3ef0c795c50d29d6f9778da51f3bbc6695b96237f0234e96077b99c5e980/pyspark-4.2.1.tar.gz", hash = "sha256:d79b7c8ee41e66a9202fe6f600ca90b931ca571ae9dbdf31c58d2672e5102da0", size = 449997486, upload-time = "2026-10-27T17:32:45.778Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/b2/4e28aaffe28db4745ac5df3ee9115719c1b5da5cce4106bee99c82d1eb2c/pyspark-4.3.0.tar.gz", hash = "sha256:e8c517948eff7088a7aa07449aa8eafa4a15a8d50319de2525a6fd26622476c6", size = 455910862, upload-time = "2026-10-30T15:30:57.079Z" }
 
 [[package]]
 name = "pytest"
@@ -1532,6 +1532,7 @@ wheels = [
 name = "refinery"
 version = "0.1.0"
 source = { editable = "." }
+default-groups = ["app", "dev", "producer"]
 
 [package.dev-dependencies]
 app = [
@@ -1567,7 +1568,7 @@ app = [
     { name = "pandas" },
 ]
 dev = [
-    { name = "pyspark", specifier = ">=4.2.1,<4.3" },
+    { name = "pyspark", specifier = ">=4.3.0,<4.4" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
