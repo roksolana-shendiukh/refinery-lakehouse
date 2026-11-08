@@ -1,0 +1,31 @@
+name: Set up Databricks CLI
+description: Installs a pinned Databricks CLI release; retries the download and verifies its checksum.
+
+inputs:
+  version:
+    description: Databricks CLI version, e.g. 0.296.1
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Download, verify and install the Databricks CLI
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        base="https://github.com/databricks/cli/releases/download/v${VERSION}"
+        archive="databricks_cli_${VERSION}_linux_amd64.zip"
+        dir="$RUNNER_TEMP/databricks-cli"
+        mkdir -p "$dir" && cd "$dir"
+
+        # GitHub release downloads sometimes return 504: retry instead of failing the run.
+        curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o "$archive" "$base/$archive"
+        curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o SHA256SUMS "$base/databricks_cli_${VERSION}_SHA256SUMS"
+
+        # Install only what matches the published checksum.
+        grep " ${archive}\$" SHA256SUMS | sha256sum --check -
+        unzip -q -o "$archive"
+        echo "$dir" >> "$GITHUB_PATH"
+        "$dir/databricks" --version
