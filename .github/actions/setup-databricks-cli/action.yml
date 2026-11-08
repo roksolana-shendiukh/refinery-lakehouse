@@ -1,31 +1,38 @@
 name: Set up Databricks CLI
-description: Installs a pinned Databricks CLI release; retries the download and verifies its checksum.
+description: >-
+  Provides the Databricks CLI from its official Docker image (ghcr.io/databricks/cli), which includes
+  Terraform and the Databricks provider, so bundle commands download nothing from github.com.
 
 inputs:
   version:
-    description: Databricks CLI version, e.g. 0.296.1
+    description: Databricks CLI version = image tag, e.g. 0.296.1
     required: true
 
 runs:
   using: composite
   steps:
-    - name: Download, verify and install the Databricks CLI
+    - name: Pull the Databricks CLI image and put a databricks wrapper on the PATH
       shell: bash
       env:
-        VERSION: ${{ inputs.version }}
+        IMAGE: ghcr.io/databricks/cli:${{ inputs.version }}
       run: |
         set -euo pipefail
-        base="https://github.com/databricks/cli/releases/download/v${VERSION}"
-        archive="databricks_cli_${VERSION}_linux_amd64.zip"
+        for attempt in 1 2 3; do
+          docker pull --quiet "$IMAGE" && break
+          [ "$attempt" -eq 3 ] && exit 1
+          echo "docker pull failed (attempt $attempt of 3), retrying in 15 s"; sleep 15
+        done
+
         dir="$RUNNER_TEMP/databricks-cli"
-        mkdir -p "$dir" && cd "$dir"
-
-        # GitHub release downloads sometimes return 504: retry instead of failing the run.
-        curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o "$archive" "$base/$archive"
-        curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o SHA256SUMS "$base/databricks_cli_${VERSION}_SHA256SUMS"
-
-        # Install only what matches the published checksum.
-        grep " ${archive}\$" SHA256SUMS | sha256sum --check -
-        unzip -q -o "$archive"
+        mkdir -p "$dir"
+        # The wrapper runs the CLI inside the image, in the current directory, with the Databricks credentials.
+        cat > "$dir/databricks" <<EOF
+        #!/usr/bin/env bash
+        exec docker run --rm -i \
+          -v "\$PWD:\$PWD" -w "\$PWD" \
+          -e DATABRICKS_HOST -e DATABRICKS_CLIENT_ID -e DATABRICKS_CLIENT_SECRET -e DATABRICKS_AUTH_TYPE \
+          "$IMAGE" "\$@"
+        EOF
+        chmod +x "$dir/databricks"
         echo "$dir" >> "$GITHUB_PATH"
         "$dir/databricks" --version
