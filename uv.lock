@@ -1532,6 +1532,9 @@ wheels = [
 name = "refinery"
 version = "0.1.0"
 source = { editable = "." }
+dependencies = [
+    { name = "requests" },
+]
 
 [package.dev-dependencies]
 app = [
@@ -1556,6 +1559,7 @@ producer = [
 ]
 
 [package.metadata]
+requires-dist = [{ name = "requests", specifier = ">=2.34.2" }]
 
 [package.metadata.requires-dev]
 app = [
