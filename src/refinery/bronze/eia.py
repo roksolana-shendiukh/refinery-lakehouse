@@ -1,7 +1,8 @@
 """EIA API v2: what to request and where to save the responses."""
 
+import csv
 import json
-from datetime import UTC
+from datetime import UTC, timedelta
 from pathlib import Path
 from typing import NamedTuple
 
@@ -110,3 +111,45 @@ def write_marker(root, load_id, started_at, counts, start=None):
     }
     path.write_text(json.dumps(marker, indent=2) + "\n", encoding="utf-8")
     return str(path)
+
+
+def read_reference(reference_dir, name):
+    """All rows of one reference CSV as dictionaries."""
+    with open(Path(reference_dir) / f"{name}.csv", encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def products_for(dataset, reference_dir):
+    """EIA product codes to request for one dataset, taken from the reference CSVs."""
+    if dataset == "supply":
+        return [row["product_bk"] for row in read_reference(reference_dir, "ref_product")]
+    return [
+        row["eia_product"] for row in read_reference(reference_dir, "ref_eia_product") if row["price_type"] == dataset
+    ]
+
+
+LOOKBACK_WEEKS = 8  # weeks re-read on every run, to pick up EIA revisions
+
+
+def has_complete_load(root):
+    """True once any load has finished: only a finished load writes a marker."""
+    return any((Path(root) / "eia" / LOADS_FOLDER).glob("load_id=*/marker.json"))
+
+
+def start_for(root, today, lookback_weeks=LOOKBACK_WEEKS):
+    """None (full history) until a load has finished; afterwards only the last weeks."""
+    if not has_complete_load(root):
+        return None
+    return (today - timedelta(weeks=lookback_weeks)).isoformat()
+
+
+def run_load(client, root, reference_dir, started_at):
+    """One load: every dataset into the landing volume, then the marker last."""
+    load_id = make_load_id(started_at)
+    start = start_for(root, started_at.astimezone(UTC).date())
+    counts = {}
+    for dataset in DATASETS:
+        products = products_for(dataset, reference_dir)
+        counts[dataset] = fetch_dataset(client, root, dataset, load_id, products, start)
+    write_marker(root, load_id, started_at, counts, start)
+    return load_id, counts

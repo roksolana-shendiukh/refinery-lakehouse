@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -14,7 +14,10 @@ from refinery.bronze.eia import (
     landing_file,
     make_load_id,
     marker_file,
+    products_for,
     request_params,
+    run_load,
+    start_for,
     write_marker,
     write_page,
 )
@@ -252,3 +255,122 @@ def test_write_marker_without_start_means_full_history(tmp_path):
     path = write_marker(str(tmp_path), LOAD_ID, STARTED_AT, {})
 
     assert json.loads(Path(path).read_text(encoding="utf-8"))["start"] is None
+
+
+REFERENCE_DIR = Path(__file__).parents[2] / "data" / "reference"
+
+
+def write_csv(folder, name, text):
+    (folder / f"{name}.csv").write_text(text, encoding="utf-8")
+
+
+def test_products_for_supply_takes_every_product(tmp_path):
+    write_csv(tmp_path, "ref_product", "product_bk,product_name\nEPM0F,Gasoline\nEPD0,Diesel\n")
+
+    assert products_for("supply", tmp_path) == ["EPM0F", "EPD0"]
+
+
+def test_products_for_prices_takes_only_their_price_type(tmp_path):
+    write_csv(
+        tmp_path,
+        "ref_eia_product",
+        "eia_product,price_type,grade_bk\n"
+        "EPMR,retail,REGULAR\n"
+        "EPMRU,spot,REGULAR\n"
+        "EPD2DXL0,retail,ULSD\n"
+        "EPD2DXL0,spot,ULSD\n",
+    )
+
+    assert products_for("retail", tmp_path) == ["EPMR", "EPD2DXL0"]
+    assert products_for("spot", tmp_path) == ["EPMRU", "EPD2DXL0"]
+
+
+@pytest.mark.parametrize("dataset", list(DATASETS))
+def test_every_dataset_has_products_in_repo_reference_files(dataset):
+    assert products_for(dataset, REFERENCE_DIR)
+
+
+TODAY = date(2026, 11, 12)
+
+
+def test_start_for_first_load_takes_full_history(tmp_path):
+    assert start_for(str(tmp_path), TODAY) is None
+
+
+def test_start_for_after_finished_load_takes_last_weeks(tmp_path):
+    write_marker(str(tmp_path), LOAD_ID, STARTED_AT, {})
+
+    assert start_for(str(tmp_path), TODAY) == "2026-09-17"
+
+
+def test_start_for_uses_given_number_of_weeks(tmp_path):
+    write_marker(str(tmp_path), LOAD_ID, STARTED_AT, {})
+
+    assert start_for(str(tmp_path), TODAY, lookback_weeks=2) == "2026-10-29"
+
+
+def test_start_for_ignores_load_that_failed_before_its_marker(tmp_path):
+    write_page(str(tmp_path), "supply", LOAD_ID, 0, [{"value": "1"}])
+
+    assert start_for(str(tmp_path), TODAY) is None
+
+
+def prepare_reference(folder):
+    write_csv(folder, "ref_product", "product_bk\nEPM0F\n")
+    write_csv(folder, "ref_eia_product", "eia_product,price_type\nEPMR,retail\nEPMRU,spot\n")
+
+
+def test_run_load_fetches_every_dataset_then_writes_marker(tmp_path):
+    prepare_reference(tmp_path)
+    landing = str(tmp_path / "landing")
+    client = FakeClient({0: page(rows(2), total=2)})
+
+    load_id, counts = run_load(client, landing, tmp_path, STARTED_AT)
+
+    assert load_id == "20261112T090000Z"
+    assert counts == {
+        "supply": {"files": 1, "rows": 2},
+        "retail": {"files": 1, "rows": 2},
+        "spot": {"files": 1, "rows": 2},
+    }
+    marker = json.loads(Path(marker_file(landing, load_id)).read_text(encoding="utf-8"))
+    assert marker["datasets"] == counts
+    assert marker["start"] is None
+
+
+def test_run_load_asks_each_dataset_for_its_own_products(tmp_path):
+    prepare_reference(tmp_path)
+    client = FakeClient({0: page(rows(1), total=1)})
+
+    run_load(client, str(tmp_path / "landing"), tmp_path, STARTED_AT)
+
+    asked = {url: [value for key, value in params if key == "facets[product][]"] for url, params in client.requests}
+    assert asked == {
+        data_url("supply"): ["EPM0F"],
+        data_url("retail"): ["EPMR"],
+        data_url("spot"): ["EPMRU"],
+    }
+
+
+def test_run_load_after_finished_load_takes_last_weeks(tmp_path):
+    prepare_reference(tmp_path)
+    landing = str(tmp_path / "landing")
+    client = FakeClient({0: page(rows(1), total=1)})
+    run_load(client, landing, tmp_path, STARTED_AT)
+
+    next_week = datetime(2026, 11, 19, 9, 0, 0, tzinfo=UTC)
+    load_id, _ = run_load(client, landing, tmp_path, next_week)
+
+    marker = json.loads(Path(marker_file(landing, load_id)).read_text(encoding="utf-8"))
+    assert marker["start"] == "2026-09-24"
+
+
+def test_run_load_writes_no_marker_when_a_dataset_fails(tmp_path):
+    prepare_reference(tmp_path)
+    landing = str(tmp_path / "landing")
+    client = FakeClient({0: page([], total=5)})
+
+    with pytest.raises(ValueError):
+        run_load(client, landing, tmp_path, STARTED_AT)
+
+    assert not Path(marker_file(landing, "20261112T090000Z")).exists()
