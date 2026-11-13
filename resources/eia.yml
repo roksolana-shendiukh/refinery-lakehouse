@@ -1,0 +1,41 @@
+# Batch path: weekly EIA supply and prices, landed as JSON files, then read by bronze.
+resources:
+  volumes:
+    landing:
+      catalog_name: ${var.catalog}
+      schema_name: ${resources.schemas.bronze.name}
+      name: landing
+      comment: Raw EIA API responses as JSON Lines, one folder per load (load_id)
+
+  jobs:
+    eia_ingest:
+      name: refinery-eia-ingest
+
+      parameters:
+        - name: landing_path
+          default: /Volumes/${var.catalog}/${resources.schemas.bronze.name}/${resources.volumes.landing.name}
+        - name: reference_path
+          default: ${workspace.file_path}/data/reference
+        - name: secret_scope
+          default: ${var.secret_scope}
+
+      tasks:
+        - task_key: fetch_eia
+          environment_key: default
+          timeout_seconds: 3600
+          spark_python_task:
+            python_file: ../src/ingestion/fetch_eia.py
+            parameters:
+              - --landing-path
+              - "{{job.parameters.landing_path}}"
+              - --reference-path
+              - "{{job.parameters.reference_path}}"
+              - --secret-scope
+              - "{{job.parameters.secret_scope}}"
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
+            dependencies:
+              - ../dist/*.whl
