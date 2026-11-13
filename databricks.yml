@@ -4,6 +4,11 @@ bundle:
 include:
   - resources/*.yml
 
+artifacts:
+  refinery_wheel:
+    type: whl
+    build: uv build --wheel
+
 variables:
   catalog:
     description: Unity Catalog catalog for all layers
@@ -34,6 +39,7 @@ targets:
       host: https://dbc-72291aa5-f437.cloud.databricks.com
     variables:
       catalog: refinery_dev
+      secret_scope: refinery-kv
 
   prod:
     mode: production
