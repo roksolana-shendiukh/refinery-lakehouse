@@ -39,3 +39,22 @@ resources:
             environment_version: "5"
             dependencies:
               - ../dist/*.whl
+
+  pipelines:
+    eia_bronze:
+      name: refinery-eia-bronze
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.bronze.name}
+      serverless: true
+      root_path: ../src/refinery_bronze
+
+      libraries:
+        - glob:
+            include: ../src/refinery_bronze/transformations/**
+
+      environment:
+        dependencies:
+          - ../dist/*.whl
+
+      configuration:
+        refinery.landing_path: /Volumes/${var.catalog}/${resources.schemas.bronze.name}/${resources.volumes.landing.name}
