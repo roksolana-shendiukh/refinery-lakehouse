@@ -7,6 +7,7 @@ from databricks.sdk.runtime import dbutils
 
 from refinery.bronze.eia import run_load
 from refinery.bronze.eia_client import EiaClient
+from refinery.bronze.reference import land_reference
 
 
 def parse_args():
@@ -22,6 +23,9 @@ def main():
     args = parse_args()
     api_key = dbutils.secrets.get(scope=args.secret_scope, key=args.api_key_name)
     client = EiaClient(api_key)
+
+    landed = land_reference(args.reference_path, args.landing_path)
+    print(f"Reference files landed: {landed or 'none changed'}")
 
     load_id, counts = run_load(client, args.landing_path, args.reference_path, datetime.now(UTC))
 

@@ -46,5 +46,4 @@ pythonpath = ["src", "src/apps/live_map"]
 [tool.ruff]
 line-length = 120
 extend-exclude = ["*_pb2.py", "*_pb2.pyi"]
-[tool.ruff.lint]
 builtins = ["spark"]
