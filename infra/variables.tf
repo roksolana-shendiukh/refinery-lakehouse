@@ -29,3 +29,9 @@ variable "live_map_principal" {
   type        = string
   default     = ""
 }
+
+variable "prod_ci_principal" {
+  description = "Application ID of refinery-prod-ci: its live pipeline and alert read the landing table; empty = no grant"
+  type        = string
+  default     = ""
+}
