@@ -36,7 +36,7 @@ targets:
     mode: development
     default: true
     workspace:
-      host: https://dbc-812ca4e2-295c.cloud.databricks.com
+      host: https://dbc-72291aa5-f437.cloud.databricks.com
     variables:
       catalog: refinery_dev
       secret_scope: refinery-kv
