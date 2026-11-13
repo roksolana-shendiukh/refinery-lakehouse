@@ -11,6 +11,11 @@ resources:
     eia_ingest:
       name: refinery-eia-ingest
 
+      schedule:
+        quartz_cron_expression: "0 0 6 ? * THU"
+        timezone_id: UTC
+        pause_status: UNPAUSED
+
       parameters:
         - name: landing_path
           default: /Volumes/${var.catalog}/${resources.schemas.bronze.name}/${resources.volumes.landing.name}
@@ -32,6 +37,11 @@ resources:
               - "{{job.parameters.reference_path}}"
               - --secret-scope
               - "{{job.parameters.secret_scope}}"
+        - task_key: refresh_bronze
+          depends_on:
+            - task_key: fetch_eia
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.eia_bronze.id}
 
       environments:
         - environment_key: default

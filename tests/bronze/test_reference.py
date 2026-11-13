@@ -1,4 +1,5 @@
 import csv
+import logging
 from pathlib import Path
 
 import pytest
@@ -86,3 +87,13 @@ def test_reference_csv_header_matches_the_stm(name):
         header = next(csv.reader(f))
 
     assert header == REFERENCE_COLUMNS[name]
+
+
+def test_land_reference_logs_each_landed_file(tmp_path, caplog):
+    repo = tmp_path / "repo"
+    write_csv(repo, "ref_hub", "hub_bk\nY35NY\n")
+
+    with caplog.at_level(logging.INFO):
+        land_reference(repo, str(tmp_path / "volume"))
+
+    assert f"Landed reference ref_hub (sha256={content_hash(repo / 'ref_hub.csv')})" in caplog.text

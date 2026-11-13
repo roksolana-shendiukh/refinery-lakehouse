@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "~1.13"
 
@@ -57,17 +57,19 @@ jobs:
     defaults:
       run:
         working-directory: infra
+    # Terraform runs as refinery-prod-infra, not as refinery-prod-ci (the bundle deployer):
+    # only this identity may create the landing table and grant rights.
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
-      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_INFRA_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_INFRA_CLIENT_SECRET }}
       DATABRICKS_AUTH_TYPE: oauth-m2m
       TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
       TF_IN_AUTOMATION: "true"
     steps:
       - uses: actions/checkout@v7
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "~1.13"
 

@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
@@ -374,3 +375,22 @@ def test_run_load_writes_no_marker_when_a_dataset_fails(tmp_path):
         run_load(client, landing, tmp_path, STARTED_AT)
 
     assert not Path(marker_file(landing, "20261112T090000Z")).exists()
+
+
+def test_fetch_dataset_logs_what_it_saved(tmp_path, caplog):
+    client = FakeClient({0: page(rows(5), total=7), 5: page(rows(2), total=7)})
+
+    with caplog.at_level(logging.INFO):
+        fetch_dataset(client, str(tmp_path), "retail", LOAD_ID, ["EPMR"])
+
+    assert "Fetched retail: 2 files, 7 rows" in caplog.text
+
+
+def test_run_load_logs_full_history_on_first_load(tmp_path, caplog):
+    prepare_reference(tmp_path)
+    client = FakeClient({0: page(rows(1), total=1)})
+
+    with caplog.at_level(logging.INFO):
+        run_load(client, str(tmp_path / "landing"), tmp_path, STARTED_AT)
+
+    assert "full history" in caplog.text

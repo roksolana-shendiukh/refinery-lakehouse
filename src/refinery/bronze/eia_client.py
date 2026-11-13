@@ -1,8 +1,11 @@
 """HTTP client for the EIA API: the only place that knows the API key."""
 
+import logging
 import time
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 RETRY_STATUSES = {429, 500, 502, 503, 504}
 
@@ -40,6 +43,7 @@ class EiaClient:
             if status != "no response" and status not in RETRY_STATUSES:
                 break
             if attempt < self.retries:
+                logger.warning("EIA request to %s failed (%s), retry %d of %d", url, status, attempt, self.retries - 1)
                 self.sleep(self.backoff_seconds * attempt)
 
         raise RuntimeError(f"EIA request to {url} failed after {attempt} attempt(s): {status}")

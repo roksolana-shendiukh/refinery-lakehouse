@@ -2,9 +2,12 @@
 
 import csv
 import json
+import logging
 from datetime import UTC, timedelta
 from pathlib import Path
 from typing import NamedTuple
+
+logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.eia.gov/v2"
 PAGE_SIZE = 5000  # the most rows EIA returns in one response
@@ -92,6 +95,7 @@ def fetch_dataset(client, root, dataset, load_id, products, start=None):
         write_page(root, dataset, load_id, offset, page_rows)
         files += 1
         rows += len(page_rows)
+    logger.info("Fetched %s: %d files, %d rows", dataset, files, rows)
     return {"files": files, "rows": rows}
 
 
@@ -147,6 +151,7 @@ def run_load(client, root, reference_dir, started_at):
     """One load: every dataset into the landing volume, then the marker last."""
     load_id = make_load_id(started_at)
     start = start_for(root, started_at.astimezone(UTC).date())
+    logger.info("Load %s started: %s", load_id, f"since {start}" if start else "full history")
     counts = {}
     for dataset in DATASETS:
         products = products_for(dataset, reference_dir)

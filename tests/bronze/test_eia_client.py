@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 import requests
 
@@ -111,3 +113,13 @@ def test_get_json_error_never_shows_the_key():
 
     assert KEY not in str(error.value)
     assert URL in str(error.value)
+
+
+def test_get_json_logs_a_retry_without_the_key(caplog):
+    client, _, _ = make_client([FakeResponse(503), FakeResponse(200, {})])
+
+    with caplog.at_level(logging.WARNING):
+        client.get_json(URL, [])
+
+    assert "retry 1 of 2" in caplog.text
+    assert KEY not in caplog.text

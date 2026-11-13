@@ -1,8 +1,11 @@
 """Reference CSVs from the repo, landed in the volume so that bronze reads them with Auto Loader."""
 
 import hashlib
+import logging
 import shutil
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 REFERENCE_FOLDER = "reference"
 
@@ -29,10 +32,12 @@ def landed_reference_file(root, name, digest):
 def land_reference(reference_dir, root):
     landed = []
     for source in sorted(Path(reference_dir).glob("*.csv")):
-        target = Path(landed_reference_file(root, source.stem, content_hash(source)))
+        digest = content_hash(source)
+        target = Path(landed_reference_file(root, source.stem, digest))
         if target.exists():
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
+        logger.info("Landed reference %s (sha256=%s)", source.stem, digest)
         landed.append(source.stem)
     return landed
