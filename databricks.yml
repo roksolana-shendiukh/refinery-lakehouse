@@ -4,10 +4,6 @@ bundle:
 include:
   - resources/*.yml
 
-artifacts:
-  refinery_wheel:
-    type: whl
-
 variables:
   catalog:
     description: Unity Catalog catalog for all layers
