@@ -25,6 +25,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Build the wheel
+        uses: ./.github/actions/build-wheel
+
       - uses: ./.github/actions/setup-databricks-cli
         with:
           version: 0.296.1

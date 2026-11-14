@@ -3,7 +3,9 @@ name = "refinery"
 version = "0.1.0"
 description = "Refinery Lakehouse: shared Python code for the EIA petroleum pipelines"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "requests>=2.34.2",
+]
 
 [dependency-groups]
 dev = [
@@ -44,3 +46,4 @@ pythonpath = ["src", "src/apps/live_map"]
 [tool.ruff]
 line-length = 120
 extend-exclude = ["*_pb2.py", "*_pb2.pyi"]
+builtins = ["spark"]

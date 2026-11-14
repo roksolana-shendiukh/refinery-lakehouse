@@ -1,0 +1,16 @@
+name: Build wheel
+description: Build the refinery wheel into dist/, so the bundle uploads it instead of building it
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Build the wheel
+      shell: bash
+      run: uv build --wheel
+
+    - name: Show the built wheel
+      shell: bash
+      run: ls dist/*.whl
