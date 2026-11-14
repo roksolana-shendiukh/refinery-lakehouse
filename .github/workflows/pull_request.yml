@@ -55,5 +55,8 @@ jobs:
         with:
           version: 0.296.1
 
+      - name: Build the wheel
+        uses: ./.github/actions/build-wheel
+
       - name: Validate the bundle for DEV
         run: databricks bundle validate -t dev

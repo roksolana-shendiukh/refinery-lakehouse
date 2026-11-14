@@ -7,7 +7,6 @@ include:
 artifacts:
   refinery_wheel:
     type: whl
-    build: uv build --wheel
 
 variables:
   catalog:
