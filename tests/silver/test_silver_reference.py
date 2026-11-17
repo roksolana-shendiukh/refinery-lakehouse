@@ -155,6 +155,20 @@ def test_hub_with_unknown_served_area_is_only_a_warning(spark, engine):
     assert finding_names(checked) == ["ref_hub.served_area_bk.exists"]
 
 
+def test_product_without_a_unit_is_an_error(spark, engine):
+    df = with_metadata(
+        spark.createDataFrame(
+            [("EPM0F", "Gasoline", "Gasoline", None, None)],
+            "product_bk STRING, product_name STRING, product_family STRING, unit STRING, "
+            "representative_grade_bk STRING",
+        )
+    )
+
+    checked = check(df, CHECKS["ref_product"], engine)
+
+    assert finding_names(checked) == ["ref_product.unit.not_null"]
+
+
 def test_terminal_zone_in_a_non_coastal_area_is_a_warning(spark, engine):
     area_df = areas(spark, [("R20", "PADD 2", "region", "NUS", False)])
     zones = with_metadata(

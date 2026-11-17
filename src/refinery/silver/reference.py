@@ -129,6 +129,7 @@ CHECKS = {
         not_null("ref_product", "product_name", "warn"),
         not_null("ref_product", "product_family", "warn"),
         one_of("ref_product", "unit", ["MBBL/D"], "error"),
+        not_null("ref_product", "unit", "error"),
         *_metadata_checks("ref_product"),
     ],
     "ref_fuel_grade": [
