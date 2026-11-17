@@ -1,0 +1,345 @@
+from datetime import date, datetime
+from decimal import Decimal
+
+import pytest
+from silver_testing import finding_names, with_metadata
+
+from refinery.silver.eia import PRICE_CHECKS, SUPPLY_CHECKS, in_scope, to_price, to_supply
+from refinery.silver.quality import check
+
+BRONZE_SUPPLY = "period STRING, duoarea STRING, product STRING, value STRING, source_file STRING, ingested_at TIMESTAMP"
+
+
+def bronze_row(period="2026-11-06", duoarea="NUS", product="EPM0F", value="9000.5"):
+    return (period, duoarea, product, value, "file", datetime(2026, 11, 8))
+
+
+def supply(spark, *rows):
+    return to_supply(spark.createDataFrame(list(rows), BRONZE_SUPPLY))
+
+
+def test_supply_has_the_stm_columns_and_types(spark):
+    silver = supply(spark, bronze_row())
+
+    assert silver.columns == [
+        "report_week",
+        "area_bk",
+        "product_bk",
+        "rate_kbd",
+        "value_status",
+        "loaded_at",
+        "source_file",
+    ]
+    assert dict(silver.dtypes)["report_week"] == "date"
+    assert dict(silver.dtypes)["rate_kbd"] == "decimal(10,1)"
+
+
+def test_supply_week_and_area_are_cleaned(spark):
+    row = supply(spark, bronze_row(period="2026-11-06", duoarea=" nus ")).first()
+
+    assert (row.report_week, row.area_bk) == (date(2026, 11, 6), "NUS")
+
+
+def test_supply_invalid_period_becomes_null(spark):
+    assert supply(spark, bronze_row(period="2026-13-45")).first().report_week is None
+
+
+def test_value_status_tells_ok_withheld_and_missing(spark):
+    silver = supply(
+        spark,
+        bronze_row(product="a", value=" 1234.5 "),
+        bronze_row(product="b", value="W"),
+        bronze_row(product="c", value=" w "),
+        bronze_row(product="d", value=None),
+        bronze_row(product="e", value="n/a"),
+    )
+
+    result = {r.product_bk: (r.rate_kbd, r.value_status) for r in silver.collect()}
+
+    assert result == {
+        "a": (Decimal("1234.5"), "ok"),
+        "b": (None, "withheld"),
+        "c": (None, "withheld"),
+        "d": (None, "missing"),
+        "e": (None, "missing"),
+    }
+
+
+SILVER_SUPPLY = "report_week DATE, area_bk STRING, product_bk STRING, rate_kbd DECIMAL(10,1), value_status STRING"
+FRIDAY = date(2026, 11, 6)
+CLEAN = (FRIDAY, "NUS", "EPM0F", Decimal("9000.5"), "ok")
+
+
+def supply_findings(spark, engine, row):
+    df = with_metadata(spark.createDataFrame([row], SILVER_SUPPLY))
+    lookups = {
+        "ref_area": spark.createDataFrame([("NUS",)], "area_bk STRING"),
+        "ref_product": spark.createDataFrame([("EPM0F",)], "product_bk STRING"),
+    }
+    return finding_names(check(df, SUPPLY_CHECKS, engine, lookups))
+
+
+def test_supply_check_levels_follow_the_stm():
+    levels = {c["name"]: c["criticality"] for c in SUPPLY_CHECKS}
+
+    assert levels == {
+        "eia_supply.report_week.not_null": "error",
+        "eia_supply.report_week.friday": "error",
+        "eia_supply.area_bk.exists": "warn",
+        "eia_supply.product_bk.exists": "warn",
+        "eia_supply.rate_kbd.status_matches_value": "error",
+        "eia_supply.rate_kbd.not_negative": "error",
+        "eia_supply.value_status.ok": "warn",
+        "eia_supply.loaded_at.not_null": "error",
+        "eia_supply.source_file.not_null": "warn",
+    }
+
+
+def test_clean_supply_row_has_no_findings(spark, engine):
+    assert supply_findings(spark, engine, CLEAN) == []
+
+
+def test_report_week_must_be_a_friday(spark, engine):
+    saturday = (date(2026, 11, 7), "NUS", "EPM0F", Decimal("1.0"), "ok")
+
+    assert supply_findings(spark, engine, saturday) == ["eia_supply.report_week.friday"]
+
+
+def test_missing_report_week_is_an_error(spark, engine):
+    row = (None, "NUS", "EPM0F", Decimal("1.0"), "ok")
+
+    assert supply_findings(spark, engine, row) == ["eia_supply.report_week.not_null"]
+
+
+def test_unknown_area_and_product_are_warnings(spark, engine):
+    row = (FRIDAY, "XXX", "NOPE", Decimal("1.0"), "ok")
+
+    assert supply_findings(spark, engine, row) == ["eia_supply.area_bk.exists", "eia_supply.product_bk.exists"]
+
+
+def test_withheld_value_is_only_a_warning(spark, engine):
+    row = (FRIDAY, "NUS", "EPM0F", None, "withheld")
+
+    assert supply_findings(spark, engine, row) == ["eia_supply.value_status.ok"]
+
+
+def test_rate_must_agree_with_value_status(spark, engine):
+    row = (FRIDAY, "NUS", "EPM0F", None, "ok")
+
+    assert supply_findings(spark, engine, row) == ["eia_supply.rate_kbd.status_matches_value"]
+
+
+def test_negative_rate_is_an_error(spark, engine):
+    row = (FRIDAY, "NUS", "EPM0F", Decimal("-1.0"), "ok")
+
+    assert supply_findings(spark, engine, row) == ["eia_supply.rate_kbd.not_negative"]
+
+
+BRONZE_PRICE = (
+    "route STRING, period STRING, duoarea STRING, product STRING, series STRING, value STRING, units STRING, "
+    "source_file STRING, ingested_at TIMESTAMP"
+)
+
+
+def price_row(route="pri/gnd", period="2026-11-09", duoarea="SCA", product="EPMR", value="3.456", units="$/GAL"):
+    return (route, period, duoarea, product, " S1 ", value, units, "file", datetime(2026, 11, 14))
+
+
+def price(spark, *rows):
+    products = spark.createDataFrame(
+        [("EPMR", "retail", "REGULAR"), ("EPMRR", "spot", "REGULAR")],
+        "eia_product STRING, price_type STRING, grade_bk STRING",
+    )
+    hubs = spark.createDataFrame([("Y35NY", "R10")], "hub_bk STRING, served_area_bk STRING")
+    return to_price(spark.createDataFrame(list(rows), BRONZE_PRICE), products, hubs)
+
+
+def test_price_has_the_stm_columns_then_source_units(spark):
+    assert price(spark, price_row()).columns == [
+        "report_week",
+        "price_type",
+        "area_bk",
+        "hub_bk",
+        "grade_bk",
+        "price_usd_gal",
+        "value_status",
+        "series_id",
+        "loaded_at",
+        "source_file",
+        "source_units",
+    ]
+
+
+def test_retail_price_moves_monday_to_friday_and_keeps_the_area(spark):
+    row = price(spark, price_row(period="2026-11-09", duoarea=" sca ")).first()
+
+    assert (row.report_week, row.price_type, row.area_bk, row.hub_bk) == (date(2026, 11, 6), "retail", "SCA", None)
+    assert (row.grade_bk, row.price_usd_gal, row.value_status, row.series_id) == (
+        "REGULAR",
+        Decimal("3.456"),
+        "ok",
+        "S1",
+    )
+
+
+def test_spot_price_takes_the_hub_and_its_served_area(spark):
+    row = price(spark, price_row(route="pri/spt", period="2026-11-06", duoarea="y35ny", product="EPMRR")).first()
+
+    assert (row.report_week, row.price_type, row.hub_bk, row.area_bk, row.grade_bk) == (
+        date(2026, 11, 6),
+        "spot",
+        "Y35NY",
+        "R10",
+        "REGULAR",
+    )
+
+
+def test_barrel_price_is_divided_by_42(spark):
+    row = price(spark, price_row(route="pri/spt", duoarea="Y35NY", product="EPMRR", value="105", units="$/BBL")).first()
+
+    assert row.price_usd_gal == Decimal("2.500")
+
+
+def test_price_value_status_and_unknown_units(spark):
+    rows = price(
+        spark,
+        price_row(duoarea="A", value="W"),
+        price_row(duoarea="B", value=None),
+        price_row(duoarea="C", units="$/MCF"),
+    ).collect()
+
+    result = {r.area_bk: (r.price_usd_gal, r.value_status, r.source_units) for r in rows}
+
+    assert result == {
+        "A": (None, "withheld", "$/GAL"),
+        "B": (None, "missing", "$/GAL"),
+        "C": (None, "ok", "$/MCF"),
+    }
+
+
+def test_unmatched_product_and_hub_keep_the_row_with_nulls(spark):
+    row = price(spark, price_row(route="pri/spt", duoarea="NOHUB", product="NOPE")).first()
+
+    assert (row.hub_bk, row.area_bk, row.grade_bk) == ("NOHUB", None, None)
+
+
+def test_retail_rows_outside_ref_area_are_out_of_scope(spark):
+    areas = spark.createDataFrame([("SCA",), ("R10",)], "area_bk STRING")
+    rows = price(
+        spark,
+        price_row(duoarea="SCA"),  # retail, area in ref_area: kept
+        price_row(duoarea="YORD"),  # retail, area not in ref_area: dropped
+        price_row(route="pri/spt", duoarea="Y35NY", product="EPMRR"),  # spot with a known hub: kept
+        price_row(route="pri/spt", duoarea="NOHUB", product="EPMRR"),  # spot with an unknown hub: kept for the checks
+        price_row(route="pri/xxx", duoarea="YORD"),  # unknown route: kept for the checks
+    )
+
+    kept = {(r.price_type, r.area_bk, r.hub_bk) for r in in_scope(rows, areas).collect()}
+
+    assert kept == {
+        ("retail", "SCA", None),
+        ("spot", "R10", "Y35NY"),
+        ("spot", None, "NOHUB"),
+        (None, None, None),
+    }
+
+
+def test_scope_filter_keeps_the_columns(spark):
+    areas = spark.createDataFrame([("SCA",)], "area_bk STRING")
+    rows = price(spark, price_row(duoarea="SCA"))
+
+    assert in_scope(rows, areas).columns == rows.columns
+
+
+SILVER_PRICE = (
+    "report_week DATE, price_type STRING, area_bk STRING, hub_bk STRING, grade_bk STRING, "
+    "price_usd_gal DECIMAL(9,3), value_status STRING, series_id STRING, source_units STRING"
+)
+
+
+def silver_price(**changes):
+    """A clean retail row, with some columns changed."""
+    row = {
+        "report_week": FRIDAY,
+        "price_type": "retail",
+        "area_bk": "SCA",
+        "hub_bk": None,
+        "grade_bk": "REGULAR",
+        "price_usd_gal": Decimal("3.456"),
+        "value_status": "ok",
+        "series_id": "S1",
+        "source_units": "$/GAL",
+        **changes,
+    }
+    return tuple(row.values())
+
+
+def spot_price(**changes):
+    """A clean spot row, with some columns changed."""
+    defaults = {
+        "price_type": "spot",
+        "area_bk": "R10",
+        "hub_bk": "Y35NY",
+        "price_usd_gal": Decimal("2.500"),
+        "source_units": "$/BBL",
+    }
+    return silver_price(**{**defaults, **changes})
+
+
+def price_findings(spark, engine, row):
+    df = with_metadata(spark.createDataFrame([row], SILVER_PRICE))
+    lookups = {"ref_hub": spark.createDataFrame([("Y35NY",)], "hub_bk STRING")}
+    return finding_names(check(df, PRICE_CHECKS, engine, lookups))
+
+
+def test_price_check_levels_follow_the_stm():
+    levels = {c["name"]: c["criticality"] for c in PRICE_CHECKS}
+
+    assert levels == {
+        "eia_price.report_week.not_null": "error",
+        "eia_price.report_week.friday": "error",
+        "eia_price.price_type.not_null": "error",
+        "eia_price.price_type.allowed_values": "error",
+        "eia_price.hub_bk.exists": "warn",
+        "eia_price.hub_bk.spot_not_null": "error",
+        "eia_price.hub_bk.retail_null": "error",
+        "eia_price.grade_bk.not_null": "error",
+        "eia_price.price_usd_gal.source_units": "error",
+        "eia_price.price_usd_gal.positive": "error",
+        "eia_price.value_status.ok": "warn",
+        "eia_price.value_status.matches_price": "error",
+        "eia_price.series_id.not_null": "error",
+        "eia_price.loaded_at.not_null": "error",
+        "eia_price.source_file.not_null": "warn",
+    }
+
+
+@pytest.mark.parametrize(
+    ("row", "expected"),
+    [
+        pytest.param(silver_price(), [], id="clean retail"),
+        pytest.param(spot_price(), [], id="clean spot"),
+        pytest.param(silver_price(report_week=date(2026, 11, 7)), ["eia_price.report_week.friday"], id="saturday"),
+        pytest.param(silver_price(report_week=None), ["eia_price.report_week.not_null"], id="no week"),
+        pytest.param(silver_price(price_type="weekly"), ["eia_price.price_type.allowed_values"], id="unknown type"),
+        pytest.param(silver_price(price_type=None), ["eia_price.price_type.not_null"], id="no type"),
+        pytest.param(spot_price(hub_bk=None), ["eia_price.hub_bk.spot_not_null"], id="spot without hub"),
+        pytest.param(spot_price(hub_bk="NOHUB"), ["eia_price.hub_bk.exists"], id="spot with an unknown hub"),
+        pytest.param(silver_price(hub_bk="Y35NY"), ["eia_price.hub_bk.retail_null"], id="retail with a hub"),
+        pytest.param(silver_price(grade_bk=None), ["eia_price.grade_bk.not_null"], id="no grade"),
+        pytest.param(
+            silver_price(price_usd_gal=None, source_units="$/MCF"),
+            ["eia_price.price_usd_gal.source_units", "eia_price.value_status.matches_price"],
+            id="unknown units",
+        ),
+        pytest.param(
+            silver_price(price_usd_gal=Decimal("0.000")), ["eia_price.price_usd_gal.positive"], id="zero price"
+        ),
+        pytest.param(
+            silver_price(price_usd_gal=None, value_status="withheld"), ["eia_price.value_status.ok"], id="withheld"
+        ),
+        pytest.param(silver_price(series_id=None), ["eia_price.series_id.not_null"], id="no series"),
+    ],
+)
+def test_price_row_findings(spark, engine, row, expected):
+    assert price_findings(spark, engine, row) == expected

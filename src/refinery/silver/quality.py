@@ -18,6 +18,39 @@ def build_engine(spark: SparkSession) -> DQEngine:
     return DQEngine(WorkspaceClient(), spark=spark)
 
 
+def build_check(table: str, label: str, rule: str, level: str, function: str, **arguments) -> dict:
+    """One DQX check as metadata, named <table>.<label>.<rule>."""
+    return {
+        "name": f"{table}.{label}.{rule}",
+        "criticality": level,
+        "check": {"function": function, "arguments": arguments},
+    }
+
+
+def not_null(table, column, level):
+    return build_check(table, column, "not_null", level, "is_not_null", column=column)
+
+
+def one_of(table, column, allowed, level):
+    # DQX reads a bare string in the list as a column name, so each value is quoted as a SQL literal.
+    literals = [f"'{value}'" for value in allowed]
+    return build_check(table, column, "allowed_values", level, "is_in_list", column=column, allowed=literals)
+
+
+def unique(table, columns, level):
+    return build_check(table, "+".join(columns), "unique", level, "is_unique", columns=columns)
+
+
+def exists_in(table, column, ref_name, ref_column, level, rule="exists"):
+    return build_check(
+        table, column, rule, level, "foreign_key", columns=[column], ref_columns=[ref_column], ref_df_name=ref_name
+    )
+
+
+def expression(table, column, rule, level, sql, message):
+    return build_check(table, column, rule, level, "sql_expression", expression=sql, msg=message, columns=[column])
+
+
 def check(
     df: DataFrame, checks: list[dict], engine: DQEngine, ref_dfs: dict[str, DataFrame] | None = None
 ) -> DataFrame:

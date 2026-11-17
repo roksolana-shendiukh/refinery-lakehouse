@@ -1,9 +1,7 @@
 from datetime import datetime
-from unittest.mock import MagicMock
 
-import pytest
-from databricks.labs.dqx.engine import DQEngine
 from pyspark.sql import functions as F
+from silver_testing import finding_names, with_metadata
 
 from refinery.bronze.reference import REFERENCE_COLUMNS
 from refinery.silver.quality import check, quarantine
@@ -18,22 +16,6 @@ from refinery.silver.reference import (
 )
 
 AREA_SCHEMA = "area_bk STRING, area_name STRING, area_level STRING, parent_area_bk STRING, is_coastal BOOLEAN"
-
-
-@pytest.fixture(scope="module")
-def engine(spark):
-    return DQEngine(MagicMock(), spark=spark)
-
-
-def with_metadata(df):
-    return df.withColumn("loaded_at", F.current_timestamp()).withColumn("source_file", F.lit("file"))
-
-
-def finding_names(checked):
-    """Names of the failed checks, errors and warnings, one entry per failed row."""
-    errors = checked.select(F.explode("_errors").alias("f"))
-    warnings = checked.select(F.explode("_warnings").alias("f"))
-    return sorted(row.name for row in errors.union(warnings).select("f.name").collect())
 
 
 def areas(spark, rows):
