@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from silver_testing import finding_names, with_metadata
 
-from refinery.silver.eia import SUPPLY_CHECKS, to_price, to_supply
+from refinery.silver.eia import SUPPLY_CHECKS, in_scope, to_price, to_supply
 from refinery.silver.quality import check
 
 BRONZE_SUPPLY = "period STRING, duoarea STRING, product STRING, value STRING, source_file STRING, ingested_at TIMESTAMP"
@@ -220,3 +220,31 @@ def test_unmatched_product_and_hub_keep_the_row_with_nulls(spark):
     row = price(spark, price_row(route="pri/spt", duoarea="NOHUB", product="NOPE")).first()
 
     assert (row.hub_bk, row.area_bk, row.grade_bk) == ("NOHUB", None, None)
+
+
+def test_retail_rows_outside_ref_area_are_out_of_scope(spark):
+    areas = spark.createDataFrame([("SCA",), ("R10",)], "area_bk STRING")
+    rows = price(
+        spark,
+        price_row(duoarea="SCA"),  # retail, area in ref_area: kept
+        price_row(duoarea="YORD"),  # retail, area not in ref_area: dropped
+        price_row(route="pri/spt", duoarea="Y35NY", product="EPMRR"),  # spot with a known hub: kept
+        price_row(route="pri/spt", duoarea="NOHUB", product="EPMRR"),  # spot with an unknown hub: kept for the checks
+        price_row(route="pri/xxx", duoarea="YORD"),  # unknown route: kept for the checks
+    )
+
+    kept = {(r.price_type, r.area_bk, r.hub_bk) for r in in_scope(rows, areas).collect()}
+
+    assert kept == {
+        ("retail", "SCA", None),
+        ("spot", "R10", "Y35NY"),
+        ("spot", None, "NOHUB"),
+        (None, None, None),
+    }
+
+
+def test_scope_filter_keeps_the_columns(spark):
+    areas = spark.createDataFrame([("SCA",)], "area_bk STRING")
+    rows = price(spark, price_row(duoarea="SCA"))
+
+    assert in_scope(rows, areas).columns == rows.columns

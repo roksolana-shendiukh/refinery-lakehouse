@@ -89,3 +89,15 @@ def to_price(df: DataFrame, eia_products: DataFrame, hubs: DataFrame) -> DataFra
         "source_file",
         units.alias("source_units"),
     )
+
+
+def in_scope(price: DataFrame, areas: DataFrame) -> DataFrame:
+    """Drop retail rows for areas outside ref_area: our customers work at PADD level and in the listed states.
+
+    This is a scope filter, not a quality check, so the dropped rows are not quarantined. Spot rows and rows
+    with an unknown route stay, so the checks can flag them.
+    """
+    known = areas.select(F.col("area_bk").alias("known_area_bk")).distinct()
+    outside = F.coalesce((F.col("price_type") == "retail") & F.col("known_area_bk").isNull(), F.lit(False))
+    joined = price.join(F.broadcast(known), price["area_bk"] == known["known_area_bk"], "left")
+    return joined.filter(~outside).drop("known_area_bk")
