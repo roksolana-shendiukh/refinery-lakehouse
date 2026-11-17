@@ -1,9 +1,10 @@
 from datetime import date, datetime
 from decimal import Decimal
 
+import pytest
 from silver_testing import finding_names, with_metadata
 
-from refinery.silver.eia import SUPPLY_CHECKS, in_scope, to_price, to_supply
+from refinery.silver.eia import PRICE_CHECKS, SUPPLY_CHECKS, in_scope, to_price, to_supply
 from refinery.silver.quality import check
 
 BRONZE_SUPPLY = "period STRING, duoarea STRING, product STRING, value STRING, source_file STRING, ingested_at TIMESTAMP"
@@ -248,3 +249,97 @@ def test_scope_filter_keeps_the_columns(spark):
     rows = price(spark, price_row(duoarea="SCA"))
 
     assert in_scope(rows, areas).columns == rows.columns
+
+
+SILVER_PRICE = (
+    "report_week DATE, price_type STRING, area_bk STRING, hub_bk STRING, grade_bk STRING, "
+    "price_usd_gal DECIMAL(9,3), value_status STRING, series_id STRING, source_units STRING"
+)
+
+
+def silver_price(**changes):
+    """A clean retail row, with some columns changed."""
+    row = {
+        "report_week": FRIDAY,
+        "price_type": "retail",
+        "area_bk": "SCA",
+        "hub_bk": None,
+        "grade_bk": "REGULAR",
+        "price_usd_gal": Decimal("3.456"),
+        "value_status": "ok",
+        "series_id": "S1",
+        "source_units": "$/GAL",
+        **changes,
+    }
+    return tuple(row.values())
+
+
+def spot_price(**changes):
+    """A clean spot row, with some columns changed."""
+    defaults = {
+        "price_type": "spot",
+        "area_bk": "R10",
+        "hub_bk": "Y35NY",
+        "price_usd_gal": Decimal("2.500"),
+        "source_units": "$/BBL",
+    }
+    return silver_price(**{**defaults, **changes})
+
+
+def price_findings(spark, engine, row):
+    df = with_metadata(spark.createDataFrame([row], SILVER_PRICE))
+    lookups = {"ref_hub": spark.createDataFrame([("Y35NY",)], "hub_bk STRING")}
+    return finding_names(check(df, PRICE_CHECKS, engine, lookups))
+
+
+def test_price_check_levels_follow_the_stm():
+    levels = {c["name"]: c["criticality"] for c in PRICE_CHECKS}
+
+    assert levels == {
+        "eia_price.report_week.not_null": "error",
+        "eia_price.report_week.friday": "error",
+        "eia_price.price_type.not_null": "error",
+        "eia_price.price_type.allowed_values": "error",
+        "eia_price.hub_bk.exists": "warn",
+        "eia_price.hub_bk.spot_not_null": "error",
+        "eia_price.hub_bk.retail_null": "error",
+        "eia_price.grade_bk.not_null": "error",
+        "eia_price.price_usd_gal.source_units": "error",
+        "eia_price.price_usd_gal.positive": "error",
+        "eia_price.value_status.ok": "warn",
+        "eia_price.value_status.matches_price": "error",
+        "eia_price.series_id.not_null": "error",
+        "eia_price.loaded_at.not_null": "error",
+        "eia_price.source_file.not_null": "warn",
+    }
+
+
+@pytest.mark.parametrize(
+    ("row", "expected"),
+    [
+        pytest.param(silver_price(), [], id="clean retail"),
+        pytest.param(spot_price(), [], id="clean spot"),
+        pytest.param(silver_price(report_week=date(2026, 11, 7)), ["eia_price.report_week.friday"], id="saturday"),
+        pytest.param(silver_price(report_week=None), ["eia_price.report_week.not_null"], id="no week"),
+        pytest.param(silver_price(price_type="weekly"), ["eia_price.price_type.allowed_values"], id="unknown type"),
+        pytest.param(silver_price(price_type=None), ["eia_price.price_type.not_null"], id="no type"),
+        pytest.param(spot_price(hub_bk=None), ["eia_price.hub_bk.spot_not_null"], id="spot without hub"),
+        pytest.param(spot_price(hub_bk="NOHUB"), ["eia_price.hub_bk.exists"], id="spot with an unknown hub"),
+        pytest.param(silver_price(hub_bk="Y35NY"), ["eia_price.hub_bk.retail_null"], id="retail with a hub"),
+        pytest.param(silver_price(grade_bk=None), ["eia_price.grade_bk.not_null"], id="no grade"),
+        pytest.param(
+            silver_price(price_usd_gal=None, source_units="$/MCF"),
+            ["eia_price.price_usd_gal.source_units", "eia_price.value_status.matches_price"],
+            id="unknown units",
+        ),
+        pytest.param(
+            silver_price(price_usd_gal=Decimal("0.000")), ["eia_price.price_usd_gal.positive"], id="zero price"
+        ),
+        pytest.param(
+            silver_price(price_usd_gal=None, value_status="withheld"), ["eia_price.value_status.ok"], id="withheld"
+        ),
+        pytest.param(silver_price(series_id=None), ["eia_price.series_id.not_null"], id="no series"),
+    ],
+)
+def test_price_row_findings(spark, engine, row, expected):
+    assert price_findings(spark, engine, row) == expected

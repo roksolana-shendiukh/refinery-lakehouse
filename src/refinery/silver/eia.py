@@ -3,7 +3,7 @@
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
-from refinery.silver.quality import exists_in, expression, not_null
+from refinery.silver.quality import exists_in, expression, not_null, one_of
 
 SUPPLY_CHECKS = [
     not_null("eia_supply", "report_week", "error"),
@@ -31,6 +31,62 @@ SUPPLY_CHECKS = [
     expression("eia_supply", "value_status", "ok", "warn", "value_status = 'ok'", "value is withheld or missing"),
     not_null("eia_supply", "loaded_at", "error"),
     not_null("eia_supply", "source_file", "warn"),
+]
+
+PRICE_CHECKS = [
+    not_null("eia_price", "report_week", "error"),
+    expression(
+        "eia_price", "report_week", "friday", "error", "dayofweek(report_week) = 6", "report_week must be a Friday"
+    ),
+    not_null("eia_price", "price_type", "error"),
+    one_of("eia_price", "price_type", ["retail", "spot"], "error"),
+    # A NULL hub_bk (retail) is skipped by the foreign key; spot_not_null and retail_null cover it.
+    exists_in("eia_price", "hub_bk", "ref_hub", "hub_bk", "warn"),
+    expression(
+        "eia_price",
+        "hub_bk",
+        "spot_not_null",
+        "error",
+        "price_type <> 'spot' OR hub_bk IS NOT NULL",
+        "a spot price needs a hub",
+    ),
+    expression(
+        "eia_price",
+        "hub_bk",
+        "retail_null",
+        "error",
+        "price_type <> 'retail' OR hub_bk IS NULL",
+        "a retail price has no hub",
+    ),
+    not_null("eia_price", "grade_bk", "error"),
+    expression(
+        "eia_price",
+        "price_usd_gal",
+        "source_units",
+        "error",
+        "COALESCE(source_units IN ('$/GAL', '$/BBL'), FALSE)",
+        "source units must be $/GAL or $/BBL",
+    ),
+    expression(
+        "eia_price",
+        "price_usd_gal",
+        "positive",
+        "error",
+        "price_usd_gal IS NULL OR price_usd_gal > 0",
+        "price must be positive",
+    ),
+    expression("eia_price", "value_status", "ok", "warn", "value_status = 'ok'", "value is withheld or missing"),
+    expression(
+        "eia_price",
+        "value_status",
+        "matches_price",
+        "error",
+        "(value_status = 'ok') = (price_usd_gal IS NOT NULL)",
+        "price_usd_gal must be set exactly when value_status is ok",
+    ),
+    not_null("eia_price", "series_id", "error"),
+    not_null("eia_price", "loaded_at", "error"),
+    not_null("eia_price", "source_file", "warn"),
 ]
 
 
