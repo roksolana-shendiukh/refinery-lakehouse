@@ -3,6 +3,8 @@
 from pyspark.sql import Column, DataFrame
 from pyspark.sql import functions as F
 
+from refinery.silver.quality import expression, not_null
+
 
 def _field(path: str, type_: str) -> Column:
     """One value of the raw AIS message, NULL when it is missing or has another type."""
@@ -53,3 +55,61 @@ def to_static(df: DataFrame) -> DataFrame:
         F.when(draught > 0, draught.try_cast("decimal(4,1)")).alias("draught"),
         F.col("received_at").alias("loaded_at"),
     )
+
+
+def _nine_digit_mmsi(table: str) -> dict:
+    return expression(
+        table,
+        "mmsi",
+        "nine_digits",
+        "error",
+        "mmsi IS NULL OR mmsi BETWEEN 100000000 AND 999999999",
+        "mmsi must have nine digits",
+    )
+
+
+def _not_in_future(table: str) -> dict:
+    return expression(
+        table,
+        "event_ts",
+        "not_in_future",
+        "error",
+        "event_ts IS NULL OR event_ts <= loaded_at + INTERVAL 5 MINUTES",
+        "event_ts must not be later than loaded_at plus 5 minutes",
+    )
+
+
+def _in_range(table: str, column: str, low, high, level: str) -> dict:
+    """NULL passes: a missing value is flagged by a not_null check where one is needed."""
+    return expression(
+        table,
+        column,
+        "in_range",
+        level,
+        f"{column} IS NULL OR {column} BETWEEN {low} AND {high}",
+        f"{column} must be between {low} and {high}",
+    )
+
+
+POSITION_CHECKS = [
+    not_null("ais_zone_positions", "mmsi", "error"),
+    _nine_digit_mmsi("ais_zone_positions"),
+    not_null("ais_zone_positions", "event_ts", "error"),
+    _not_in_future("ais_zone_positions"),
+    _in_range("ais_zone_positions", "sog", 0, 102.2, "warn"),
+    _in_range("ais_zone_positions", "nav_status", 0, 14, "warn"),
+    not_null("ais_zone_positions", "loaded_at", "error"),
+]
+
+STATIC_CHECKS = [
+    not_null("ais_vessel_static", "mmsi", "error"),
+    _nine_digit_mmsi("ais_vessel_static"),
+    not_null("ais_vessel_static", "event_ts", "error"),
+    _not_in_future("ais_vessel_static"),
+    _in_range("ais_vessel_static", "imo", 1000000, 9999999, "warn"),
+    not_null("ais_vessel_static", "vessel_name", "warn"),
+    _in_range("ais_vessel_static", "ship_type", 1, 99, "warn"),
+    _in_range("ais_vessel_static", "length_m", 1, 500, "warn"),
+    _in_range("ais_vessel_static", "draught", 0.1, 30, "warn"),
+    not_null("ais_vessel_static", "loaded_at", "error"),
+]
