@@ -1,0 +1,152 @@
+"""Silver reference tables: keep the latest CSV version, type the columns, define the DQX checks."""
+
+from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
+
+from refinery.bronze.reference import REFERENCE_COLUMNS
+
+
+def latest_version(df: DataFrame) -> DataFrame:
+    """Rows of the newest landed version of a reference CSV: newest load, then newest file name."""
+    newest = df.agg(F.max(F.struct("ingested_at", "source_file")).alias("newest")).select("newest.source_file")
+    return df.join(F.broadcast(newest), "source_file")
+
+
+def to_silver(df: DataFrame, name: str) -> DataFrame:
+    """Latest version of a bronze reference table with the silver columns.
+
+    A value that cannot be parsed becomes NULL, so a check can reject the row.
+    """
+    columns = [
+        F.col(column).try_cast("boolean").alias(column) if column == "is_coastal" else F.col(column)
+        for column in REFERENCE_COLUMNS[name]
+    ]
+    return latest_version(df).select(*columns, F.col("ingested_at").alias("loaded_at"), "source_file")
+
+
+def _check(table: str, label: str, rule: str, level: str, function: str, **arguments) -> dict:
+    """One DQX check as metadata, named <table>.<label>.<rule>."""
+    return {
+        "name": f"{table}.{label}.{rule}",
+        "criticality": level,
+        "check": {"function": function, "arguments": arguments},
+    }
+
+
+def not_null(table, column, level):
+    return _check(table, column, "not_null", level, "is_not_null", column=column)
+
+
+def one_of(table, column, allowed, level):
+    # DQX reads a bare string in the list as a column name, so each value is quoted as a SQL literal.
+    literals = [f"'{value}'" for value in allowed]
+    return _check(table, column, "allowed_values", level, "is_in_list", column=column, allowed=literals)
+
+
+def unique(table, columns, level):
+    return _check(table, "+".join(columns), "unique", level, "is_unique", columns=columns)
+
+
+def exists_in(table, column, ref_name, ref_column, level, rule="exists"):
+    return _check(
+        table, column, rule, level, "foreign_key", columns=[column], ref_columns=[ref_column], ref_df_name=ref_name
+    )
+
+
+def expression(table, column, rule, level, sql, message):
+    return _check(table, column, rule, level, "sql_expression", expression=sql, msg=message, columns=[column])
+
+
+def _metadata_checks(table):
+    """Checks every reference table has: when it was loaded and from which file."""
+    return [not_null(table, "loaded_at", "error"), not_null(table, "source_file", "warn")]
+
+
+CHECKS = {
+    "ref_area": [
+        not_null("ref_area", "area_bk", "error"),
+        unique("ref_area", ["area_bk"], "error"),
+        not_null("ref_area", "area_name", "warn"),
+        not_null("ref_area", "area_level", "error"),
+        one_of("ref_area", "area_level", ["country", "region", "subregion"], "error"),
+        expression(
+            "ref_area",
+            "parent_area_bk",
+            "null_only_for_country",
+            "error",
+            "(area_level = 'country') = (parent_area_bk IS NULL)",
+            "parent_area_bk must be NULL for a country and set for any other level",
+        ),
+        exists_in("ref_area", "parent_area_bk", "ref_area", "area_bk", "error"),
+        not_null("ref_area", "is_coastal", "warn"),
+        *_metadata_checks("ref_area"),
+    ],
+    "ref_hub": [
+        not_null("ref_hub", "hub_bk", "error"),
+        unique("ref_hub", ["hub_bk"], "error"),
+        not_null("ref_hub", "hub_name", "warn"),
+        exists_in("ref_hub", "served_area_bk", "ref_area", "area_bk", "warn"),
+        *_metadata_checks("ref_hub"),
+    ],
+    "ref_product": [
+        not_null("ref_product", "product_bk", "error"),
+        unique("ref_product", ["product_bk"], "error"),
+        not_null("ref_product", "product_name", "warn"),
+        not_null("ref_product", "product_family", "warn"),
+        one_of("ref_product", "unit", ["MBBL/D"], "error"),
+        *_metadata_checks("ref_product"),
+    ],
+    "ref_fuel_grade": [
+        not_null("ref_fuel_grade", "grade_bk", "error"),
+        unique("ref_fuel_grade", ["grade_bk"], "error"),
+        not_null("ref_fuel_grade", "grade_name", "warn"),
+        one_of("ref_fuel_grade", "source_unit", ["$/GAL", "$/BBL"], "warn"),
+        expression(
+            "ref_fuel_grade",
+            "product_bk",
+            "null_only_for_barrels",
+            "warn",
+            "(source_unit = '$/BBL') = (product_bk IS NULL)",
+            "product_bk must be NULL for a $/BBL grade and set for any other unit",
+        ),
+        *_metadata_checks("ref_fuel_grade"),
+    ],
+    "ref_eia_product": [
+        not_null("ref_eia_product", "eia_product", "error"),
+        not_null("ref_eia_product", "price_type", "error"),
+        one_of("ref_eia_product", "price_type", ["retail", "spot"], "error"),
+        not_null("ref_eia_product", "grade_bk", "error"),
+        exists_in("ref_eia_product", "grade_bk", "ref_fuel_grade", "grade_bk", "error"),
+        unique("ref_eia_product", ["eia_product", "price_type"], "error"),
+        unique("ref_eia_product", ["grade_bk", "price_type"], "error"),
+        *_metadata_checks("ref_eia_product"),
+    ],
+    "ref_terminal_zone": [
+        not_null("ref_terminal_zone", "port_bk", "error"),
+        unique("ref_terminal_zone", ["port_bk"], "error"),
+        not_null("ref_terminal_zone", "port_name", "warn"),
+        one_of(
+            "ref_terminal_zone",
+            "terminal_type",
+            ["refinery dock", "product terminal", "crude terminal", "anchorage"],
+            "warn",
+        ),
+        not_null("ref_terminal_zone", "area_bk", "error"),
+        # Looks up the coastal areas only: the area must exist in ref_area and have is_coastal = true.
+        exists_in("ref_terminal_zone", "area_bk", "ref_area_coastal", "area_bk", "warn", rule="coastal_area"),
+        # boundary_wkt (valid geometry) needs Databricks-only functions; it is added with the pipeline.
+        *_metadata_checks("ref_terminal_zone"),
+    ],
+    "ref_mid": [
+        not_null("ref_mid", "mid", "error"),
+        _check("ref_mid", "mid", "three_digits_2_to_7", "error", "regex_match", column="mid", regex=r"^[2-7][0-9]{2}$"),
+        unique("ref_mid", ["mid"], "error"),
+        not_null("ref_mid", "country_name", "warn"),
+        *_metadata_checks("ref_mid"),
+    ],
+}
+
+
+def lookup_tables(ref_area: DataFrame) -> dict[str, DataFrame]:
+    """Area lookups for the foreign key checks: all areas, and the coastal ones."""
+    return {"ref_area": ref_area, "ref_area_coastal": ref_area.filter(F.col("is_coastal"))}

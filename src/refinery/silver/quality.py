@@ -18,9 +18,14 @@ def build_engine(spark: SparkSession) -> DQEngine:
     return DQEngine(WorkspaceClient(), spark=spark)
 
 
-def check(df: DataFrame, checks: list[dict], engine: DQEngine) -> DataFrame:
-    """Apply the checks once and append the `_errors` and `_warnings` result columns."""
-    return engine.apply_checks_by_metadata(df, checks)
+def check(
+    df: DataFrame, checks: list[dict], engine: DQEngine, ref_dfs: dict[str, DataFrame] | None = None
+) -> DataFrame:
+    """Apply the checks once and append the `_errors` and `_warnings` result columns.
+
+    `ref_dfs` holds the tables that foreign key checks look up, by the name used in the check.
+    """
+    return engine.apply_checks_by_metadata(df, checks, ref_dfs=ref_dfs)
 
 
 def valid(checked: DataFrame) -> DataFrame:
