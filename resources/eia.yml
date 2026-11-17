@@ -42,6 +42,11 @@ resources:
             - task_key: fetch_eia
           pipeline_task:
             pipeline_id: ${resources.pipelines.eia_bronze.id}
+        - task_key: refresh_silver
+          depends_on:
+            - task_key: refresh_bronze
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.silver_batch.id}
 
       environments:
         - environment_key: default

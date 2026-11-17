@@ -7,7 +7,11 @@ resources:
     silver:
       catalog_name: ${var.catalog}
       name: ${var.schema_prefix}silver
-      comment: Cleaned and validated data, quarantine tables
+      comment: Cleaned and validated data
+    quality:
+      catalog_name: ${var.catalog}
+      name: ${var.schema_prefix}quality
+      comment: Quarantine tables, reference integrity checks and data quality metrics
     gold:
       catalog_name: ${var.catalog}
       name: ${var.schema_prefix}gold
