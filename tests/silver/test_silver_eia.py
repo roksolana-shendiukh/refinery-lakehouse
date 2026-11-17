@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from silver_testing import finding_names, with_metadata
 
-from refinery.silver.eia import SUPPLY_CHECKS, to_supply
+from refinery.silver.eia import SUPPLY_CHECKS, to_price, to_supply
 from refinery.silver.quality import check
 
 BRONZE_SUPPLY = "period STRING, duoarea STRING, product STRING, value STRING, source_file STRING, ingested_at TIMESTAMP"
@@ -132,3 +132,91 @@ def test_negative_rate_is_an_error(spark, engine):
     row = (FRIDAY, "NUS", "EPM0F", Decimal("-1.0"), "ok")
 
     assert supply_findings(spark, engine, row) == ["eia_supply.rate_kbd.not_negative"]
+
+
+BRONZE_PRICE = (
+    "route STRING, period STRING, duoarea STRING, product STRING, series STRING, value STRING, units STRING, "
+    "source_file STRING, ingested_at TIMESTAMP"
+)
+
+
+def price_row(route="pri/gnd", period="2026-11-09", duoarea="SCA", product="EPMR", value="3.456", units="$/GAL"):
+    return (route, period, duoarea, product, " S1 ", value, units, "file", datetime(2026, 11, 14))
+
+
+def price(spark, *rows):
+    products = spark.createDataFrame(
+        [("EPMR", "retail", "REGULAR"), ("EPMRR", "spot", "REGULAR")],
+        "eia_product STRING, price_type STRING, grade_bk STRING",
+    )
+    hubs = spark.createDataFrame([("Y35NY", "R10")], "hub_bk STRING, served_area_bk STRING")
+    return to_price(spark.createDataFrame(list(rows), BRONZE_PRICE), products, hubs)
+
+
+def test_price_has_the_stm_columns_then_source_units(spark):
+    assert price(spark, price_row()).columns == [
+        "report_week",
+        "price_type",
+        "area_bk",
+        "hub_bk",
+        "grade_bk",
+        "price_usd_gal",
+        "value_status",
+        "series_id",
+        "loaded_at",
+        "source_file",
+        "source_units",
+    ]
+
+
+def test_retail_price_moves_monday_to_friday_and_keeps_the_area(spark):
+    row = price(spark, price_row(period="2026-11-09", duoarea=" sca ")).first()
+
+    assert (row.report_week, row.price_type, row.area_bk, row.hub_bk) == (date(2026, 11, 6), "retail", "SCA", None)
+    assert (row.grade_bk, row.price_usd_gal, row.value_status, row.series_id) == (
+        "REGULAR",
+        Decimal("3.456"),
+        "ok",
+        "S1",
+    )
+
+
+def test_spot_price_takes_the_hub_and_its_served_area(spark):
+    row = price(spark, price_row(route="pri/spt", period="2026-11-06", duoarea="y35ny", product="EPMRR")).first()
+
+    assert (row.report_week, row.price_type, row.hub_bk, row.area_bk, row.grade_bk) == (
+        date(2026, 11, 6),
+        "spot",
+        "Y35NY",
+        "R10",
+        "REGULAR",
+    )
+
+
+def test_barrel_price_is_divided_by_42(spark):
+    row = price(spark, price_row(route="pri/spt", duoarea="Y35NY", product="EPMRR", value="105", units="$/BBL")).first()
+
+    assert row.price_usd_gal == Decimal("2.500")
+
+
+def test_price_value_status_and_unknown_units(spark):
+    rows = price(
+        spark,
+        price_row(duoarea="A", value="W"),
+        price_row(duoarea="B", value=None),
+        price_row(duoarea="C", units="$/MCF"),
+    ).collect()
+
+    result = {r.area_bk: (r.price_usd_gal, r.value_status, r.source_units) for r in rows}
+
+    assert result == {
+        "A": (None, "withheld", "$/GAL"),
+        "B": (None, "missing", "$/GAL"),
+        "C": (None, "ok", "$/MCF"),
+    }
+
+
+def test_unmatched_product_and_hub_keep_the_row_with_nulls(spark):
+    row = price(spark, price_row(route="pri/spt", duoarea="NOHUB", product="NOPE")).first()
+
+    assert (row.hub_bk, row.area_bk, row.grade_bk) == ("NOHUB", None, None)

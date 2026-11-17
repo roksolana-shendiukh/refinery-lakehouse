@@ -48,3 +48,44 @@ def to_supply(df: DataFrame) -> DataFrame:
         F.col("ingested_at").alias("loaded_at"),
         "source_file",
     )
+
+
+def to_price(df: DataFrame, eia_products: DataFrame, hubs: DataFrame) -> DataFrame:
+    """Silver eia_price columns from eia_price_raw, plus source_units for the units check.
+
+    `eia_products` (eia_product, price_type, grade_bk) and `hubs` (hub_bk, served_area_bk) are the silver
+    reference tables. Both joins are left joins, so a missing match gives NULL and the row is kept.
+    """
+    area = F.upper(F.trim(F.col("duoarea")))
+    value = F.trim(F.col("value"))
+    amount = value.try_cast("decimal(12,4)")
+    units = F.upper(F.trim(F.col("units")))
+    week = F.to_date(F.try_to_timestamp(F.col("period"), F.lit("yyyy-MM-dd")))
+    status = F.when(amount.isNotNull(), "ok").when(F.upper(value) == "W", "withheld").otherwise("missing")
+
+    typed = (
+        df.withColumn("report_week", F.when(F.col("route") == "pri/gnd", F.date_sub(week, 3)).otherwise(week))
+        .withColumn(
+            "price_type", F.when(F.col("route") == "pri/gnd", "retail").when(F.col("route") == "pri/spt", "spot")
+        )
+        .withColumn("hub_bk", F.when(F.col("price_type") == "spot", area))
+    )
+    joined = typed.join(F.broadcast(hubs.select("hub_bk", "served_area_bk")), "hub_bk", "left").join(
+        F.broadcast(eia_products.select(F.col("eia_product").alias("product"), "price_type", "grade_bk")),
+        ["product", "price_type"],
+        "left",
+    )
+    price_per_gallon = F.when(units == "$/GAL", amount).when(units == "$/BBL", amount / 42)
+    return joined.select(
+        "report_week",
+        "price_type",
+        F.when(F.col("price_type") == "retail", area).otherwise(F.col("served_area_bk")).alias("area_bk"),
+        "hub_bk",
+        "grade_bk",
+        price_per_gallon.try_cast("decimal(9,3)").alias("price_usd_gal"),
+        status.alias("value_status"),
+        F.trim(F.col("series")).alias("series_id"),
+        F.col("ingested_at").alias("loaded_at"),
+        "source_file",
+        units.alias("source_units"),
+    )
