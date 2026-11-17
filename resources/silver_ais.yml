@@ -1,0 +1,25 @@
+# AIS silver tables. PROD only: the landing table zerobus_ais_messages exists only there (created by Terraform).
+targets:
+  prod:
+    resources:
+      pipelines:
+        silver_ais:
+          name: refinery-ais-silver
+          catalog: ${var.catalog}
+          schema: ${resources.schemas.silver.name}
+          serverless: true
+          continuous: false
+          channel: CURRENT
+          root_path: ../src/refinery_silver
+
+          libraries:
+            - file:
+                path: ../src/refinery_silver/ais/ais.py
+
+          environment:
+            dependencies:
+              - ../dist/*.whl
+
+          configuration:
+            refinery.source_table: ${var.catalog}.${resources.schemas.bronze.name}.zerobus_ais_messages
+            refinery.quality_schema: ${var.catalog}.${resources.schemas.quality.name}
