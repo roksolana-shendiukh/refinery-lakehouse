@@ -6,7 +6,14 @@ import pytest
 from pyspark.sql import functions as F
 from silver_testing import finding_names
 
-from refinery.silver.ais import POSITION_CHECKS, STATIC_CHECKS, to_positions, to_static
+from refinery.silver.ais import (
+    MMSI_MAP_CHECKS,
+    POSITION_CHECKS,
+    STATIC_CHECKS,
+    to_positions,
+    to_static,
+    to_vessel_mmsi_map,
+)
 from refinery.silver.quality import check
 
 TIME_UTC = "2026-11-08 14:27:52.331783091 +0000 UTC"
@@ -290,3 +297,167 @@ def test_static_check_levels_follow_the_stm():
 )
 def test_static_row_findings(spark, engine, row, expected):
     assert static_findings(spark, engine, row) == expected
+
+
+# --- vessel_mmsi_map: transformation ---
+
+STATIC_SILVER_FOR_MAP = "mmsi INT, event_ts TIMESTAMP, imo INT, loaded_at TIMESTAMP"
+POSITIONS_SILVER_FOR_MAP = "mmsi INT, event_ts TIMESTAMP"
+
+
+def vessel_map(spark, static_rows, position_rows=()):
+    static_df = spark.createDataFrame(static_rows, STATIC_SILVER_FOR_MAP)
+    positions_df = spark.createDataFrame(list(position_rows), POSITIONS_SILVER_FOR_MAP)
+    return to_vessel_mmsi_map(static_df, positions_df)
+
+
+def test_vessel_map_has_the_stm_columns(spark):
+    columns = vessel_map(spark, [(244000000, datetime(2026, 11, 1, 10), 9321483, datetime(2026, 11, 1, 11))]).columns
+
+    assert columns == ["imo", "mmsi", "effective_from", "effective_to", "first_static_ts", "loaded_at"]
+
+
+def test_vessel_map_pair_uses_first_static_and_last_load(spark):
+    static_rows = [
+        (244000000, datetime(2026, 11, 2, 10), 9321483, datetime(2026, 11, 2, 10, 1)),
+        (244000000, datetime(2026, 11, 3, 10), 9321483, datetime(2026, 11, 3, 10, 1)),
+    ]
+    row = vessel_map(spark, static_rows, [(244000000, datetime(2026, 11, 1, 8))]).first()
+
+    assert row.first_static_ts == datetime(2026, 11, 2, 10)
+    assert row.effective_from == datetime(2026, 11, 1, 8)
+    assert row.loaded_at == datetime(2026, 11, 3, 10, 1)
+    assert row.effective_to is None
+
+
+def test_vessel_map_without_positions_starts_at_first_static(spark):
+    row = vessel_map(spark, [(244000000, datetime(2026, 11, 2, 10), 9321483, datetime(2026, 11, 2, 11))]).first()
+
+    assert row.effective_from == datetime(2026, 11, 2, 10)
+
+
+def test_vessel_map_closes_a_pair_when_the_vessel_gets_a_new_mmsi(spark):
+    static_rows = [
+        (244000000, datetime(2026, 11, 1, 10), 9321483, datetime(2026, 11, 1, 11)),
+        (244000001, datetime(2026, 11, 5, 10), 9321483, datetime(2026, 11, 5, 11)),
+    ]
+    rows = vessel_map(spark, static_rows).orderBy("effective_from").collect()
+
+    assert [(r.mmsi, r.effective_to) for r in rows] == [(244000000, datetime(2026, 11, 5, 10)), (244000001, None)]
+
+
+def test_vessel_map_ignores_static_without_imo(spark):
+    static_rows = [(244000000, datetime(2026, 11, 1, 10), None, datetime(2026, 11, 1, 11))]
+
+    assert vessel_map(spark, static_rows).count() == 0
+
+
+# --- vessel_mmsi_map: checks ---
+
+SILVER_MAP = (
+    "imo INT, mmsi INT, effective_from TIMESTAMP, effective_to TIMESTAMP, first_static_ts TIMESTAMP, "
+    "loaded_at TIMESTAMP"
+)
+
+
+def silver_map(**changes):
+    """A clean map row (the only row of its vessel), with some columns changed."""
+    row = {
+        "imo": 9321483,
+        "mmsi": 244000000,
+        "effective_from": EVENT_TS,
+        "effective_to": None,
+        "first_static_ts": EVENT_TS,
+        "loaded_at": LOADED_AT,
+        **changes,
+    }
+    return tuple(row.values())
+
+
+def map_findings(spark, engine, *rows):
+    df = spark.createDataFrame(list(rows), SILVER_MAP)
+    return sorted(finding_names(check(df, MMSI_MAP_CHECKS, engine)))
+
+
+def test_vessel_map_check_levels_follow_the_stm():
+    levels = {c["name"]: c["criticality"] for c in MMSI_MAP_CHECKS}
+
+    assert levels == {
+        "vessel_mmsi_map.imo.in_range": "warn",
+        "vessel_mmsi_map.mmsi.not_null": "error",
+        "vessel_mmsi_map.mmsi.nine_digits": "error",
+        "vessel_mmsi_map.effective_from.not_null": "error",
+        "vessel_mmsi_map.effective_from.unique": "error",
+        "vessel_mmsi_map.effective_from.not_after_first_static": "error",
+        "vessel_mmsi_map.effective_to.after_effective_from": "error",
+        "vessel_mmsi_map.effective_to.one_open_per_vessel": "error",
+        "vessel_mmsi_map.first_static_ts.not_null": "error",
+        "vessel_mmsi_map.loaded_at.not_null": "error",
+    }
+
+
+@pytest.mark.parametrize(
+    ("row", "expected"),
+    [
+        pytest.param(silver_map(), [], id="clean"),
+        pytest.param(silver_map(imo=123), ["vessel_mmsi_map.imo.in_range"], id="bad imo"),
+        pytest.param(silver_map(mmsi=None), ["vessel_mmsi_map.mmsi.not_null"], id="no mmsi"),
+        pytest.param(silver_map(mmsi=12345), ["vessel_mmsi_map.mmsi.nine_digits"], id="short mmsi"),
+        pytest.param(
+            silver_map(effective_from=None),
+            ["vessel_mmsi_map.effective_from.not_null"],
+            id="no effective_from",
+        ),
+        pytest.param(
+            silver_map(effective_from=EVENT_TS + timedelta(hours=1)),
+            ["vessel_mmsi_map.effective_from.not_after_first_static"],
+            id="starts after first static",
+        ),
+        pytest.param(
+            silver_map(first_static_ts=None),
+            ["vessel_mmsi_map.first_static_ts.not_null"],
+            id="no first_static_ts",
+        ),
+        pytest.param(silver_map(loaded_at=None), ["vessel_mmsi_map.loaded_at.not_null"], id="no loaded_at"),
+    ],
+)
+def test_vessel_map_row_findings(spark, engine, row, expected):
+    assert map_findings(spark, engine, row) == expected
+
+
+def test_vessel_map_closed_pair_followed_by_an_open_one_is_clean(spark, engine):
+    closed = silver_map(mmsi=244000000, effective_to=EVENT_TS + timedelta(days=1))
+    current = silver_map(
+        mmsi=244000001,
+        effective_from=EVENT_TS + timedelta(days=1),
+        first_static_ts=EVENT_TS + timedelta(days=1),
+    )
+
+    assert map_findings(spark, engine, closed, current) == []
+
+
+def test_vessel_map_vessel_with_two_open_rows_is_flagged(spark, engine):
+    first = silver_map(mmsi=244000000)
+    second = silver_map(mmsi=244000001)
+
+    assert map_findings(spark, engine, first, second) == ["vessel_mmsi_map.effective_to.one_open_per_vessel"] * 2
+
+
+def test_vessel_map_vessel_without_an_open_row_is_flagged(spark, engine):
+    row = silver_map(effective_to=EVENT_TS + timedelta(days=1))
+
+    assert map_findings(spark, engine, row) == ["vessel_mmsi_map.effective_to.one_open_per_vessel"]
+
+
+def test_vessel_map_effective_to_not_after_effective_from_is_flagged(spark, engine):
+    closed = silver_map(mmsi=244000000, effective_to=EVENT_TS)
+    current = silver_map(mmsi=244000001)
+
+    assert map_findings(spark, engine, closed, current) == ["vessel_mmsi_map.effective_to.after_effective_from"]
+
+
+def test_vessel_map_repeated_mmsi_and_effective_from_is_flagged(spark, engine):
+    first = silver_map(imo=9321483)
+    second = silver_map(imo=9074729)
+
+    assert map_findings(spark, engine, first, second) == ["vessel_mmsi_map.effective_from.unique"] * 2

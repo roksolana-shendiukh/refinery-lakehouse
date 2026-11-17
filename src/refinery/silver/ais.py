@@ -1,6 +1,6 @@
 """Silver AIS tables: PositionReport and ShipStaticData messages from the landing table, as the STM says."""
 
-from pyspark.sql import Column, DataFrame
+from pyspark.sql import Column, DataFrame, Window
 from pyspark.sql import functions as F
 
 from refinery.silver.quality import expression, not_null
@@ -112,4 +112,64 @@ STATIC_CHECKS = [
     _in_range("ais_vessel_static", "length_m", 1, 500, "warn"),
     _in_range("ais_vessel_static", "draught", 0.1, 30, "warn"),
     not_null("ais_vessel_static", "loaded_at", "error"),
+]
+
+
+def to_vessel_mmsi_map(static: DataFrame, positions: DataFrame) -> DataFrame:
+    """Which MMSI a vessel (IMO) used and when: one row per IMO-MMSI pair, closed by the vessel's next MMSI."""
+    pairs = (
+        static.where(F.col("imo").isNotNull() & F.col("mmsi").isNotNull())
+        .groupBy("imo", "mmsi")
+        .agg(F.min("event_ts").alias("first_static_ts"), F.max("loaded_at").alias("loaded_at"))
+    )
+    first_seen = positions.groupBy("mmsi").agg(F.min("event_ts").alias("first_seen"))
+    by_vessel = Window.partitionBy("imo").orderBy("effective_from")
+    return (
+        pairs.join(first_seen, "mmsi", "left")
+        # least() skips NULL, so a vessel without positions starts at its first static message.
+        .withColumn("effective_from", F.least("first_static_ts", "first_seen"))
+        .withColumn("effective_to", F.lead("effective_from").over(by_vessel))
+        .select("imo", "mmsi", "effective_from", "effective_to", "first_static_ts", "loaded_at")
+    )
+
+
+MMSI_MAP_CHECKS = [
+    _in_range("vessel_mmsi_map", "imo", 1000000, 9999999, "warn"),
+    not_null("vessel_mmsi_map", "mmsi", "error"),
+    _nine_digit_mmsi("vessel_mmsi_map"),
+    not_null("vessel_mmsi_map", "effective_from", "error"),
+    expression(
+        "vessel_mmsi_map",
+        "effective_from",
+        "unique",
+        "error",
+        "mmsi IS NULL OR effective_from IS NULL OR count(*) OVER (PARTITION BY mmsi, effective_from) = 1",
+        "mmsi and effective_from must be unique",
+    ),
+    expression(
+        "vessel_mmsi_map",
+        "effective_from",
+        "not_after_first_static",
+        "error",
+        "effective_from IS NULL OR first_static_ts IS NULL OR effective_from <= first_static_ts",
+        "effective_from must not be later than first_static_ts",
+    ),
+    expression(
+        "vessel_mmsi_map",
+        "effective_to",
+        "after_effective_from",
+        "error",
+        "effective_to IS NULL OR effective_to > effective_from",
+        "effective_to must be later than effective_from",
+    ),
+    expression(
+        "vessel_mmsi_map",
+        "effective_to",
+        "one_open_per_vessel",
+        "error",
+        "imo IS NULL OR count_if(effective_to IS NULL) OVER (PARTITION BY imo) = 1",
+        "each vessel must have exactly one row with effective_to NULL",
+    ),
+    not_null("vessel_mmsi_map", "first_static_ts", "error"),
+    not_null("vessel_mmsi_map", "loaded_at", "error"),
 ]
