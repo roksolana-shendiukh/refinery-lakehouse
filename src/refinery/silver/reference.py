@@ -1,5 +1,6 @@
 """Silver reference tables: keep the latest CSV version, type the columns, define the DQX checks."""
 
+import databricks.labs.dqx.geo.check_funcs  # noqa: F401  registers the geometry checks used from metadata
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
@@ -146,7 +147,59 @@ CHECKS = {
     ],
 }
 
+# Needs Databricks (try_to_geometry, st_isvalid), so it is not in CHECKS and does not run on local Spark.
+BOUNDARY_CHECK = _check(
+    "ref_terminal_zone", "boundary_wkt", "valid_geometry", "error", "is_ogc_valid", column="boundary_wkt"
+)
+
+
+def pipeline_checks(name: str) -> list[dict]:
+    """The checks a pipeline applies: CHECKS plus the ones that need Databricks."""
+    return CHECKS[name] + ([BOUNDARY_CHECK] if name == "ref_terminal_zone" else [])
+
 
 def lookup_tables(ref_area: DataFrame) -> dict[str, DataFrame]:
     """Area lookups for the foreign key checks: all areas, and the coastal ones."""
     return {"ref_area": ref_area, "ref_area_coastal": ref_area.filter(F.col("is_coastal"))}
+
+
+def integrity_findings(products: DataFrame, grades: DataFrame) -> DataFrame:
+    """Cross-checks between ref_product and ref_fuel_grade, one row per problem (both are warnings).
+
+    They run here and not inside the two tables, because the tables point at each other.
+    """
+    wrong_grade = (
+        products.filter(F.col("representative_grade_bk").isNotNull())
+        .join(
+            grades.select("grade_bk", F.col("product_bk").alias("grade_product_bk")),
+            F.col("representative_grade_bk") == F.col("grade_bk"),
+            "left",
+        )
+        .filter(F.col("grade_bk").isNull() | ~F.col("grade_product_bk").eqNullSafe(F.col("product_bk")))
+        .select(
+            F.lit("ref_product.representative_grade_bk.exists_and_belongs_to_product").alias("check_name"),
+            F.lit("ref_product").alias("table_name"),
+            F.col("product_bk").alias("key_value"),
+            F.col("representative_grade_bk").alias("bad_value"),
+            F.lit("warning").alias("level"),
+            "loaded_at",
+        )
+    )
+    unknown_product = (
+        grades.filter(F.col("product_bk").isNotNull())
+        .join(
+            products.select(F.col("product_bk").alias("known_product_bk")),
+            F.col("product_bk") == F.col("known_product_bk"),
+            "left",
+        )
+        .filter(F.col("known_product_bk").isNull())
+        .select(
+            F.lit("ref_fuel_grade.product_bk.exists").alias("check_name"),
+            F.lit("ref_fuel_grade").alias("table_name"),
+            F.col("grade_bk").alias("key_value"),
+            F.col("product_bk").alias("bad_value"),
+            F.lit("warning").alias("level"),
+            "loaded_at",
+        )
+    )
+    return wrong_grade.unionByName(unknown_product)

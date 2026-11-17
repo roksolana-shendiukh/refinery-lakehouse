@@ -7,7 +7,14 @@ from pyspark.sql import functions as F
 
 from refinery.bronze.reference import REFERENCE_COLUMNS
 from refinery.silver.quality import check, quarantine
-from refinery.silver.reference import CHECKS, latest_version, lookup_tables, to_silver
+from refinery.silver.reference import (
+    CHECKS,
+    integrity_findings,
+    latest_version,
+    lookup_tables,
+    pipeline_checks,
+    to_silver,
+)
 
 AREA_SCHEMA = "area_bk STRING, area_name STRING, area_level STRING, parent_area_bk STRING, is_coastal BOOLEAN"
 
@@ -162,3 +169,31 @@ def test_eia_product_must_point_to_a_known_fuel_grade(spark, engine):
     checked = check(products, CHECKS["ref_eia_product"], engine, {"ref_fuel_grade": grades})
 
     assert finding_names(checked) == ["ref_eia_product.grade_bk.exists"]
+
+
+def test_integrity_finds_unknown_and_foreign_grades(spark):
+    products = with_metadata(
+        spark.createDataFrame(
+            [("P1", "G1"), ("P2", "G1"), ("P3", "GX"), ("P4", None)],
+            "product_bk STRING, representative_grade_bk STRING",
+        )
+    )
+    grades = with_metadata(
+        spark.createDataFrame([("G1", "P1"), ("G2", "PX"), ("G3", None)], "grade_bk STRING, product_bk STRING")
+    )
+
+    findings = integrity_findings(products, grades)
+
+    assert findings.columns == ["check_name", "table_name", "key_value", "bad_value", "level", "loaded_at"]
+    assert sorted((r.check_name, r.key_value, r.bad_value) for r in findings.collect()) == [
+        ("ref_fuel_grade.product_bk.exists", "G2", "PX"),
+        ("ref_product.representative_grade_bk.exists_and_belongs_to_product", "P2", "G1"),
+        ("ref_product.representative_grade_bk.exists_and_belongs_to_product", "P3", "GX"),
+    ]
+
+
+def test_only_the_terminal_zone_pipeline_adds_the_geometry_check():
+    boundary = [c["name"] for c in pipeline_checks("ref_terminal_zone") if c["check"]["function"] == "is_ogc_valid"]
+
+    assert boundary == ["ref_terminal_zone.boundary_wkt.valid_geometry"]
+    assert pipeline_checks("ref_area") == CHECKS["ref_area"]
