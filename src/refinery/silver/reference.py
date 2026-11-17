@@ -4,6 +4,8 @@ import databricks.labs.dqx.geo.check_funcs  # noqa: F401  registers the geometry
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
+from refinery.silver.quality import build_check, exists_in, expression, not_null, one_of, unique
+
 
 def latest_version(df: DataFrame) -> DataFrame:
     """Rows of the newest landed version of a reference CSV: newest load, then newest file name."""
@@ -57,39 +59,6 @@ def to_silver(df: DataFrame, name: str) -> DataFrame:
     """
     columns = [NORMALIZE[kind](F.col(column)).alias(column) for column, kind in COLUMN_KINDS[name].items()]
     return latest_version(df).select(*columns, F.col("ingested_at").alias("loaded_at"), "source_file")
-
-
-def _check(table: str, label: str, rule: str, level: str, function: str, **arguments) -> dict:
-    """One DQX check as metadata, named <table>.<label>.<rule>."""
-    return {
-        "name": f"{table}.{label}.{rule}",
-        "criticality": level,
-        "check": {"function": function, "arguments": arguments},
-    }
-
-
-def not_null(table, column, level):
-    return _check(table, column, "not_null", level, "is_not_null", column=column)
-
-
-def one_of(table, column, allowed, level):
-    # DQX reads a bare string in the list as a column name, so each value is quoted as a SQL literal.
-    literals = [f"'{value}'" for value in allowed]
-    return _check(table, column, "allowed_values", level, "is_in_list", column=column, allowed=literals)
-
-
-def unique(table, columns, level):
-    return _check(table, "+".join(columns), "unique", level, "is_unique", columns=columns)
-
-
-def exists_in(table, column, ref_name, ref_column, level, rule="exists"):
-    return _check(
-        table, column, rule, level, "foreign_key", columns=[column], ref_columns=[ref_column], ref_df_name=ref_name
-    )
-
-
-def expression(table, column, rule, level, sql, message):
-    return _check(table, column, rule, level, "sql_expression", expression=sql, msg=message, columns=[column])
 
 
 def _metadata_checks(table):
@@ -177,7 +146,9 @@ CHECKS = {
     ],
     "ref_mid": [
         not_null("ref_mid", "mid", "error"),
-        _check("ref_mid", "mid", "three_digits_2_to_7", "error", "regex_match", column="mid", regex=r"^[2-7][0-9]{2}$"),
+        build_check(
+            "ref_mid", "mid", "three_digits_2_to_7", "error", "regex_match", column="mid", regex=r"^[2-7][0-9]{2}$"
+        ),
         unique("ref_mid", ["mid"], "error"),
         not_null("ref_mid", "country_name", "warn"),
         *_metadata_checks("ref_mid"),
@@ -185,7 +156,7 @@ CHECKS = {
 }
 
 # Needs Databricks (try_to_geometry, st_isvalid), so it is not in CHECKS and does not run on local Spark.
-BOUNDARY_CHECK = _check(
+BOUNDARY_CHECK = build_check(
     "ref_terminal_zone", "boundary_wkt", "valid_geometry", "error", "is_ogc_valid", column="boundary_wkt"
 )
 
