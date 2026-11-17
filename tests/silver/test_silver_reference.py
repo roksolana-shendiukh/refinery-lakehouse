@@ -9,6 +9,7 @@ from refinery.bronze.reference import REFERENCE_COLUMNS
 from refinery.silver.quality import check, quarantine
 from refinery.silver.reference import (
     CHECKS,
+    COLUMN_KINDS,
     integrity_findings,
     latest_version,
     lookup_tables,
@@ -72,6 +73,28 @@ def test_unparsable_is_coastal_becomes_null(spark):
     )
 
     assert to_silver(bronze, "ref_area").first().is_coastal is None
+
+
+def test_to_silver_cleans_values_as_the_stm_says(spark):
+    bronze = spark.createDataFrame(
+        [(" r10 ", "  PADD 1 ", " Region ", "  ", " TRUE ", "file", datetime(2026, 11, 1))],
+        "area_bk STRING, area_name STRING, area_level STRING, parent_area_bk STRING, is_coastal STRING, "
+        "source_file STRING, ingested_at TIMESTAMP",
+    )
+
+    row = to_silver(bronze, "ref_area").first()
+
+    assert (row.area_bk, row.area_name, row.area_level, row.parent_area_bk, row.is_coastal) == (
+        "R10",
+        "PADD 1",
+        "region",
+        None,
+        True,
+    )
+
+
+def test_every_reference_column_has_a_cleaning_rule_in_the_bronze_order():
+    assert {name: list(kinds) for name, kinds in COLUMN_KINDS.items()} == REFERENCE_COLUMNS
 
 
 def test_every_reference_table_has_checks_with_names_of_its_own_table():

@@ -4,8 +4,6 @@ import databricks.labs.dqx.geo.check_funcs  # noqa: F401  registers the geometry
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
-from refinery.bronze.reference import REFERENCE_COLUMNS
-
 
 def latest_version(df: DataFrame) -> DataFrame:
     """Rows of the newest landed version of a reference CSV: newest load, then newest file name."""
@@ -13,15 +11,51 @@ def latest_version(df: DataFrame) -> DataFrame:
     return df.join(F.broadcast(newest), "source_file")
 
 
+# How the STM cleans each reference column: trimmed text, blank becomes NULL, keys upper-cased.
+NORMALIZE = {
+    "key": lambda c: F.when(F.trim(c) != "", F.upper(F.trim(c))),
+    "text": lambda c: F.when(F.trim(c) != "", F.trim(c)),
+    "lower": lambda c: F.lower(F.trim(c)),
+    "upper": lambda c: F.upper(F.trim(c)),
+    "boolean": lambda c: F.lower(F.trim(c)).try_cast("boolean"),
+    "trim": lambda c: F.trim(c),
+}
+
+COLUMN_KINDS = {
+    "ref_area": {
+        "area_bk": "key",
+        "area_name": "text",
+        "area_level": "lower",
+        "parent_area_bk": "key",
+        "is_coastal": "boolean",
+    },
+    "ref_hub": {"hub_bk": "key", "hub_name": "text", "served_area_bk": "key"},
+    "ref_product": {
+        "product_bk": "key",
+        "product_name": "text",
+        "product_family": "text",
+        "unit": "upper",
+        "representative_grade_bk": "key",
+    },
+    "ref_fuel_grade": {"grade_bk": "key", "grade_name": "text", "source_unit": "upper", "product_bk": "key"},
+    "ref_eia_product": {"eia_product": "key", "price_type": "lower", "grade_bk": "key"},
+    "ref_terminal_zone": {
+        "port_bk": "key",
+        "port_name": "text",
+        "terminal_type": "lower",
+        "area_bk": "key",
+        "boundary_wkt": "trim",
+    },
+    "ref_mid": {"mid": "text", "country_name": "text"},
+}
+
+
 def to_silver(df: DataFrame, name: str) -> DataFrame:
-    """Latest version of a bronze reference table with the silver columns.
+    """Latest version of a bronze reference table with the silver columns, cleaned as the STM says.
 
     A value that cannot be parsed becomes NULL, so a check can reject the row.
     """
-    columns = [
-        F.col(column).try_cast("boolean").alias(column) if column == "is_coastal" else F.col(column)
-        for column in REFERENCE_COLUMNS[name]
-    ]
+    columns = [NORMALIZE[kind](F.col(column)).alias(column) for column, kind in COLUMN_KINDS[name].items()]
     return latest_version(df).select(*columns, F.col("ingested_at").alias("loaded_at"), "source_file")
 
 
