@@ -137,6 +137,7 @@ CHECKS = {
         unique("ref_fuel_grade", ["grade_bk"], "error"),
         not_null("ref_fuel_grade", "grade_name", "warn"),
         one_of("ref_fuel_grade", "source_unit", ["$/GAL", "$/BBL"], "warn"),
+        not_null("ref_fuel_grade", "source_unit", "warn"),
         expression(
             "ref_fuel_grade",
             "product_bk",
@@ -167,6 +168,7 @@ CHECKS = {
             ["refinery dock", "product terminal", "crude terminal", "anchorage"],
             "warn",
         ),
+        not_null("ref_terminal_zone", "terminal_type", "warn"),
         not_null("ref_terminal_zone", "area_bk", "error"),
         # Looks up the coastal areas only: the area must exist in ref_area and have is_coastal = true.
         exists_in("ref_terminal_zone", "area_bk", "ref_area_coastal", "area_bk", "warn", rule="coastal_area"),

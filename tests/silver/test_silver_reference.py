@@ -169,6 +169,34 @@ def test_product_without_a_unit_is_an_error(spark, engine):
     assert finding_names(checked) == ["ref_product.unit.not_null"]
 
 
+def test_fuel_grade_without_a_source_unit_is_a_warning(spark, engine):
+    df = with_metadata(
+        spark.createDataFrame(
+            [("REGULAR", "Regular gasoline", None, "EPM0F")],
+            "grade_bk STRING, grade_name STRING, source_unit STRING, product_bk STRING",
+        )
+    )
+
+    checked = check(df, CHECKS["ref_fuel_grade"], engine)
+
+    assert finding_names(checked) == ["ref_fuel_grade.source_unit.not_null"]
+    assert checked.filter(F.col("_errors").isNotNull()).count() == 0
+
+
+def test_terminal_zone_without_a_type_is_a_warning(spark, engine):
+    area_df = areas(spark, [("R10", "PADD 1", "region", "NUS", True)])
+    zones = with_metadata(
+        spark.createDataFrame(
+            [("BOS", "Boston", None, "R10", "POLYGON((0 0, 1 0, 1 1, 0 0))")],
+            "port_bk STRING, port_name STRING, terminal_type STRING, area_bk STRING, boundary_wkt STRING",
+        )
+    )
+
+    checked = check(zones, CHECKS["ref_terminal_zone"], engine, lookup_tables(area_df))
+
+    assert finding_names(checked) == ["ref_terminal_zone.terminal_type.not_null"]
+
+
 def test_terminal_zone_in_a_non_coastal_area_is_a_warning(spark, engine):
     area_df = areas(spark, [("R20", "PADD 2", "region", "NUS", False)])
     zones = with_metadata(
