@@ -1,0 +1,21 @@
+# Silver layer: reference tables in the silver schema; their quarantine tables and checks in the quality schema.
+resources:
+  pipelines:
+    silver_batch:
+      name: refinery-silver
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.silver.name}
+      serverless: true
+      root_path: ../src/refinery_silver
+
+      libraries:
+        - glob:
+            include: ../src/refinery_silver/transformations/**
+
+      environment:
+        dependencies:
+          - ../dist/*.whl
+
+      configuration:
+        refinery.bronze_schema: ${var.catalog}.${resources.schemas.bronze.name}
+        refinery.quality_schema: ${var.catalog}.${resources.schemas.quality.name}
