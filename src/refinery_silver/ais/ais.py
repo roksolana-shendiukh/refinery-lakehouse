@@ -17,11 +17,24 @@ SOURCE = spark.conf.get("refinery.source_table")
 # Schema as <catalog>.<schema>, set in the pipeline configuration
 QUALITY = spark.conf.get("refinery.quality_schema")
 
+# A repeated position (same MMSI and event time) is dropped when it arrives within this time of the first one.
+DUPLICATE_WINDOW = "3 hours"
+
 ENGINE = build_engine(spark)
 
 
 def landing(message_type):
     return spark.readStream.table(SOURCE).where(F.col("message_type") == message_type)
+
+
+def define_quarantine(name, checked_view, cluster_by):
+    @dp.table(
+        name=f"{QUALITY}.{name}_quarantine",
+        comment=f"Rows of {name} with an error or a warning, with the DQX result columns",
+        cluster_by=cluster_by,
+    )
+    def quarantined():
+        return quarantine(spark.readStream.table(checked_view))
 
 
 @dp.temporary_view(name="ais_zone_positions_checked")
@@ -34,7 +47,20 @@ def ais_zone_positions_checked():
         .join(zones, in_zone)
         .select("mmsi", "event_ts", "port_bk", "sog", "nav_status", "loaded_at")
     )
-    return check(positions, POSITION_CHECKS, ENGINE)
+    checked = check(positions, POSITION_CHECKS, ENGINE)
+    return checked.withWatermark("event_ts", DUPLICATE_WINDOW).dropDuplicatesWithinWatermark(["mmsi", "event_ts"])
+
+
+@dp.table(
+    name="ais_zone_positions",
+    comment="AIS position reports inside a terminal zone, one row per MMSI and event time; rows without errors",
+    cluster_by=["mmsi", "event_ts"],
+)
+def ais_zone_positions():
+    return valid(spark.readStream.table("ais_zone_positions_checked"))
+
+
+define_quarantine("ais_zone_positions", "ais_zone_positions_checked", ["mmsi", "event_ts"])
 
 
 @dp.temporary_view(name="ais_vessel_static_checked")
@@ -42,36 +68,37 @@ def ais_vessel_static_checked():
     return check(to_static(landing("ShipStaticData")), STATIC_CHECKS, ENGINE)
 
 
+@dp.temporary_view(name="ais_vessel_static_valid")
+def ais_vessel_static_valid():
+    return valid(spark.readStream.table("ais_vessel_static_checked"))
+
+
+# Change log (SCD2): a new version of a vessel starts when its IMO, name, type, length or draught changes.
+dp.create_streaming_table(
+    name="ais_vessel_static",
+    comment="AIS static data as a change log per MMSI (SCD2); rows without errors",
+    cluster_by=["mmsi"],
+)
+dp.create_auto_cdc_flow(
+    target="ais_vessel_static",
+    source="ais_vessel_static_valid",
+    keys=["mmsi"],
+    sequence_by="event_ts",
+    stored_as_scd_type=2,
+    track_history_column_list=["imo", "vessel_name", "ship_type", "length_m", "draught"],
+)
+
+define_quarantine("ais_vessel_static", "ais_vessel_static_checked", ["mmsi", "event_ts"])
+
+
 @dp.temporary_view(name="vessel_mmsi_map_checked")
 def vessel_mmsi_map_checked():
-    vessel_map = to_vessel_mmsi_map(spark.read.table("ais_vessel_static"), spark.read.table("ais_zone_positions"))
-    return check(vessel_map, MMSI_MAP_CHECKS, ENGINE)
-
-
-def define_stream_table(name, checked_view, comment):
-    @dp.table(name=name, comment=comment, cluster_by=["mmsi", "event_ts"])
-    def silver():
-        return valid(spark.readStream.table(checked_view))
-
-    @dp.table(
-        name=f"{QUALITY}.{name}_quarantine",
-        comment=f"Rows of {name} with an error or a warning, with the DQX result columns",
-        cluster_by=["mmsi", "event_ts"],
+    # The change log starts a new version at __START_AT: that is the first time the vessel used this IMO and MMSI.
+    static = spark.read.table("ais_vessel_static").select(
+        "mmsi", F.col("__START_AT").alias("event_ts"), "imo", "loaded_at"
     )
-    def quarantined():
-        return quarantine(spark.readStream.table(checked_view))
-
-
-define_stream_table(
-    "ais_zone_positions",
-    "ais_zone_positions_checked",
-    "AIS position reports inside a terminal zone, one row per message; rows without errors",
-)
-define_stream_table(
-    "ais_vessel_static",
-    "ais_vessel_static_checked",
-    "AIS static data messages, one row per message; rows without errors",
-)
+    vessel_map = to_vessel_mmsi_map(static, spark.read.table("ais_zone_positions"))
+    return check(vessel_map, MMSI_MAP_CHECKS, ENGINE)
 
 
 @dp.materialized_view(
