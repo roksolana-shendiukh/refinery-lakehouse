@@ -1,7 +1,9 @@
 """Runs the AIS producer: aisstream -> record -> Zerobus. Wiring, heartbeat and clean shutdown only"""
 
 import asyncio
+import contextlib
 import logging
+import signal
 import sys
 from dataclasses import dataclass
 
@@ -70,17 +72,8 @@ def send_with_policy(sink: ZerobusSink, record: AisMessage) -> bool:
             return False
 
 
-async def run(config: ProducerConfig) -> int:
-    callback = ProducerAckCallback()
-    sink = ZerobusSink(config, callback)
-    progress = Progress()
-    try:
-        sink.open()
-    except ZerobusException as error:
-        # The SDK already retried stream creation; at startup there is no stream to recreate.
-        log.error("Stopping: could not open the Zerobus stream: %s", error)
-        return EXIT_STOPPED_ON_ERROR
-    beat = asyncio.create_task(heartbeat(callback, sink, progress, config.heartbeat_seconds))
+async def forward(config: ProducerConfig, sink: ZerobusSink, progress: Progress) -> int:
+    """Reads aisstream and sends every message to Zerobus until an error stops it."""
     try:
         async for envelope in read_messages(
             config.ais_url,
@@ -96,13 +89,59 @@ async def run(config: ProducerConfig) -> int:
     except AisSourceError as error:
         log.error("Stopping: aisstream refused the subscription: %s", error)
         return EXIT_STOPPED_ON_ERROR
+    return EXIT_OK
+
+
+async def run(config: ProducerConfig, stop: asyncio.Event) -> int:
+    """Forwards messages until an error or until `stop` is set; then closes the stream, which flushes."""
+    callback = ProducerAckCallback()
+    sink = ZerobusSink(config, callback)
+    progress = Progress()
+    try:
+        sink.open()
+    except ZerobusException as error:
+        # The SDK already retried stream creation; at startup there is no stream to recreate.
+        log.error("Stopping: could not open the Zerobus stream: %s", error)
+        return EXIT_STOPPED_ON_ERROR
+    beat = asyncio.create_task(heartbeat(callback, sink, progress, config.heartbeat_seconds))
+    work = asyncio.create_task(forward(config, sink, progress))
+    stop_requested = asyncio.create_task(stop.wait())
+    try:
+        await asyncio.wait({work, stop_requested}, return_when=asyncio.FIRST_COMPLETED)
+        if work.done():
+            return work.result()  # an error stopped it; a bug re-raises here with its traceback
+        # Cancelling only interrupts the wait for the next frame: a record being sent is sent in full.
+        log.info("Stop requested; closing the AIS connection and flushing Zerobus")
+        work.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await work
+        return EXIT_OK
     finally:
-        beat.cancel()
+        for task in (beat, work, stop_requested):
+            task.cancel()
         try:
             sink.close()  # flushes: queued records become durable before exit
         except ZerobusException as error:
             log.error("Closing the Zerobus stream failed: %s", error)
-    return EXIT_OK
+        log.info("Sent %d records in total", progress.sent)
+
+
+def install_stop_handlers(loop: asyncio.AbstractEventLoop, stop: asyncio.Event) -> None:
+    """SIGTERM (kill, docker stop, systemd) and SIGINT (Ctrl+C) set `stop` instead of killing the process."""
+    for signal_number in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(signal_number, stop.set)
+        except NotImplementedError:
+            # Windows: its event loop has no add_signal_handler. A plain handler runs between bytecodes,
+            # so it hands the stop to the loop thread-safely; that also wakes a loop waiting for a frame.
+            signal.signal(signal_number, lambda *_: loop.call_soon_threadsafe(stop.set))
+
+
+async def serve(config: ProducerConfig) -> int:
+    """Runs the producer until an error or a stop signal."""
+    stop = asyncio.Event()
+    install_stop_handlers(asyncio.get_running_loop(), stop)
+    return await run(config, stop)
 
 
 def main() -> int:
@@ -113,11 +152,7 @@ def main() -> int:
         log.error("%s", error)
         return EXIT_BAD_CONFIG
     log.info("Starting AIS producer for %s", config.table_name)
-    try:
-        return asyncio.run(run(config))
-    except KeyboardInterrupt:
-        log.info("Stopped by Ctrl+C")
-        return EXIT_OK
+    return asyncio.run(serve(config))
 
 
 if __name__ == "__main__":

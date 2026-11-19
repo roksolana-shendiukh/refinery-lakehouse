@@ -1,4 +1,8 @@
+import logging
 from datetime import UTC, datetime
+
+import pytest
+from zerobus.sdk.shared import ZerobusException
 
 from ais_producer.ack_callback import ProducerAckCallback
 from ais_producer.ais_source import AisEnvelope
@@ -20,6 +24,7 @@ class FakeStream:
     def __init__(self) -> None:
         self.payloads: list[bytes] = []
         self.closed = False
+        self.close_error: ZerobusException | None = None
 
     def ingest_record_offset(self, payload: bytes) -> int:
         self.payloads.append(payload)
@@ -27,13 +32,20 @@ class FakeStream:
 
     def close(self) -> None:
         self.closed = True
+        if self.close_error is not None:
+            raise self.close_error
+
+    def get_unacked_records(self):
+        return iter(self.payloads)
 
 
 class FakeSdk:
     def __init__(self, endpoint: str, workspace_url: str) -> None:
         self.streams: list[FakeStream] = []
+        self.options = None
 
     def create_stream(self, client_id, client_secret, table, options) -> FakeStream:
+        self.options = options
         self.streams.append(FakeStream())
         return self.streams[-1]
 
@@ -82,3 +94,23 @@ def test_close_closes_the_stream_once():
     sink.close()
 
     assert sdk.streams[0].closed
+
+
+def test_flush_timeout_comes_from_the_config():
+    sink, sdk = make_sink()
+    sink.open()
+
+    assert sdk.options.flush_timeout_ms == CONFIG.flush_timeout_seconds * 1000 == 30_000
+
+
+def test_close_that_fails_logs_the_unacknowledged_records_and_re_raises(caplog):
+    sink, sdk = make_sink()
+    sink.open()
+    sink.send(to_record(AisEnvelope(datetime(2026, 11, 8, tzinfo=UTC), "PositionReport", "{}")))
+    sdk.streams[0].close_error = ZerobusException("flush timed out")
+
+    with caplog.at_level(logging.ERROR), pytest.raises(ZerobusException):
+        sink.close()
+
+    assert "did not confirm 1 records" in caplog.text
+    sink.close()  # the stream is already gone: a second close does nothing
