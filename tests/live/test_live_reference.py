@@ -8,7 +8,7 @@ import pytest
 from refinery.live_reference import LIVE_REFERENCE_VIEWS, output_path
 from refinery.reference_sql import render_from_csv
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.parametrize("view", LIVE_REFERENCE_VIEWS, ids=lambda view: view.view_name)
