@@ -42,7 +42,10 @@ class ZerobusSink:
         return self._stream.ingest_record_offset(record.SerializeToString())
 
     def recreate(self) -> None:
-        """A fresh stream from the failed one; records that were not acknowledged are sent again."""
+        """A fresh stream from the failed one; records that were not acknowledged are sent again.
+
+        If it fails, the failed stream is kept, so the next attempt recreates from it again.
+        """
         self._stream = self._sdk.recreate_stream(self._stream)
         self.recreated = True
         log.warning("Zerobus stream recreated")

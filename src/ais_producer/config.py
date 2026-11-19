@@ -55,6 +55,10 @@ class ProducerConfig:
     ping_timeout_seconds: int = 20
     bounding_boxes: tuple = US_COASTS
     message_types: tuple = MESSAGE_TYPES
+    # Zerobus retries once the SDK's own recovery gave up: backoff with full jitter, then stop
+    retry_base_seconds: int = 2
+    retry_max_delay_seconds: int = 60
+    retry_budget_seconds: int = 600
     # Shutdown: the longest a clean stop waits for queued records to become durable (SDK default 300 s)
     flush_timeout_seconds: int = 30
     # Monitoring
@@ -72,6 +76,9 @@ class ProducerConfig:
             ais_url=_optional("AISSTREAM_URL", DEFAULT_AISSTREAM_URL),
             ping_interval_seconds=_optional_int("AIS_PING_INTERVAL_SECONDS", 20),
             ping_timeout_seconds=_optional_int("AIS_PING_TIMEOUT_SECONDS", 20),
+            retry_base_seconds=_optional_int("RETRY_BASE_SECONDS", 2),
+            retry_max_delay_seconds=_optional_int("RETRY_MAX_DELAY_SECONDS", 60),
+            retry_budget_seconds=_optional_int("RETRY_BUDGET_SECONDS", 600),
             flush_timeout_seconds=_optional_int("FLUSH_TIMEOUT_SECONDS", 30),
             heartbeat_seconds=_optional_int("HEARTBEAT_SECONDS", 60),
         )

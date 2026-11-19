@@ -12,17 +12,15 @@ from ais_producer.ais_source import AisSourceError
 
 
 class Action(Enum):
-    RECREATE_STREAM = "recreate_stream"
-    STOP = "stop"
+    RETRY = "retry"  # wait (backoff), recreate the stream, send again; main stops when the budget is spent
+    STOP = "stop"  # something is broken
 
 
-def decide(error: BaseException, stream_already_recreated: bool) -> Action:
-    # Order matters: NonRetriableException is a subclass of ZerobusException.
+def decide(error: BaseException) -> Action:
     if isinstance(error, NonRetriableException):
         return Action.STOP  # wrong credentials or rights, missing table, schema mismatch
     if isinstance(error, ZerobusException):
-        # The SDK's own recovery gave up: one fresh stream, then stop and let the supervisor or alert take over.
-        return Action.STOP if stream_already_recreated else Action.RECREATE_STREAM
+        return Action.RETRY  # the SDK's own recovery gave up: a fresh stream after a pause may work
     if isinstance(error, AisSourceError):
         return Action.STOP  # aisstream refused the subscription, e.g. an invalid API key
     return Action.STOP  # unknown errors: stop loudly instead of guessing
