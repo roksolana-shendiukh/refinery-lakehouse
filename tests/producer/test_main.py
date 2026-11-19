@@ -9,7 +9,9 @@ import pytest
 from zerobus.sdk.shared import NonRetriableException, ZerobusException
 
 from ais_producer import main
-from ais_producer.ais_source import AisEnvelope, AisSourceError
+from ais_producer.ack_callback import ProducerAckCallback
+from ais_producer.ais_source import AisEnvelope, AisSourceError, SourceStats
+from ais_producer.buffer import MessageBuffer
 from ais_producer.config import ProducerConfig
 
 CONFIG = ProducerConfig(
@@ -320,3 +322,23 @@ def test_a_refused_subscription_still_sends_what_is_buffered(monkeypatch, sink):
 
     assert asyncio.run(main.run(CONFIG, asyncio.Event())) == main.EXIT_BAD_CONFIG
     assert len(sink[0].sent) == 5
+
+
+def test_heartbeat_logs_one_line_for_aisstream_and_one_for_zerobus(caplog):
+    source = SourceStats(connections=3, disconnects=1, silences=1, received=42)
+    buffer = MessageBuffer(10)
+    buffer.put(ENVELOPE)
+    progress = main.Progress(sent=40)
+
+    async def scenario():
+        beat = asyncio.create_task(
+            main.heartbeat(ProducerAckCallback(), FakeSink(), FakeBackoff([]), buffer, source, progress, 0)
+        )
+        await asyncio.sleep(0.01)
+        beat.cancel()
+
+    with caplog.at_level("INFO"):
+        asyncio.run(scenario())
+
+    assert "aisstream: received 42, reconnects 2 (dropped 1, silent 1), last message never" in caplog.text
+    assert "zerobus: sent 40, buffered 1, dropped 0 positions and 0 static" in caplog.text

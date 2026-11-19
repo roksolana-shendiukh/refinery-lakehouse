@@ -18,7 +18,7 @@ from zerobus.sdk.shared import NonRetriableException, ZerobusException
 
 from ais_producer.ack_callback import ProducerAckCallback
 from ais_producer.ais_message_pb2 import AisMessage
-from ais_producer.ais_source import AisSourceError, read_messages
+from ais_producer.ais_source import AisSourceError, SourceStats, read_messages
 from ais_producer.backoff import Backoff
 from ais_producer.buffer import MessageBuffer
 from ais_producer.config import ConfigError, ProducerConfig
@@ -58,22 +58,38 @@ class Progress:
     sent: int = 0
 
 
+def _seconds(value: float | None) -> str:
+    return "never" if value is None else f"{value:.0f} s ago"
+
+
 async def heartbeat(
     callback: ProducerAckCallback,
     sink: ZerobusSink,
     backoff: Backoff,
     buffer: MessageBuffer,
+    source: SourceStats,
     progress: Progress,
     every_seconds: int,
 ) -> None:
-    """Logs progress every minute; once records are acknowledged again after a recreate, resets the backoff."""
+    """Logs one line for aisstream and one for Zerobus every minute.
+
+    Once records are acknowledged again after a recreate, resets the backoff.
+    """
     acknowledged_at_recreate: int | None = None
     while True:
         await asyncio.sleep(every_seconds)
         stats = callback.snapshot()
         log.info(
-            "sent %d, buffered %d, dropped %d positions and %d static, durable %d, failed %d, "
-            "last offset %s, last ack %.0f s ago",
+            "aisstream: received %d, reconnects %d (dropped %d, silent %d), last message %s",
+            source.received,
+            max(source.connections - 1, 0),
+            source.disconnects,
+            source.silences,
+            _seconds(source.seconds_since_last_message()),
+        )
+        log.info(
+            "zerobus: sent %d, buffered %d, dropped %d positions and %d static, durable %d, failed %d, "
+            "last offset %s, last ack %s",
             progress.sent,
             len(buffer),
             buffer.dropped_positions,
@@ -81,7 +97,7 @@ async def heartbeat(
             stats.acknowledged,
             stats.failed,
             stats.last_offset,
-            stats.seconds_since_last_ack,
+            _seconds(stats.seconds_since_last_ack),
         )
         if sink.recreated:
             if acknowledged_at_recreate is None:
@@ -122,7 +138,7 @@ async def send_with_policy(sink: ZerobusSink, record: AisMessage, backoff: Backo
             stream_failed = True
 
 
-async def read_into(config: ProducerConfig, buffer: MessageBuffer) -> int:
+async def read_into(config: ProducerConfig, buffer: MessageBuffer, source: SourceStats) -> int:
     """Reads aisstream into the buffer until the subscription is refused. Never waits on Zerobus."""
     try:
         async for envelope in read_messages(
@@ -133,6 +149,7 @@ async def read_into(config: ProducerConfig, buffer: MessageBuffer) -> int:
             config.ping_interval_seconds,
             config.ping_timeout_seconds,
             config.silence_seconds,
+            source,
         ):
             buffer.put(envelope)
     except AisSourceError as error:
@@ -170,6 +187,7 @@ async def run(config: ProducerConfig, stop: asyncio.Event) -> int:
     progress = Progress()
     backoff = Backoff(config.retry_base_seconds, config.retry_max_delay_seconds, config.retry_budget_seconds)
     buffer = MessageBuffer(config.buffer_max_messages)
+    source = SourceStats()
     try:
         sink.open()
     except ZerobusException as error:
@@ -177,8 +195,8 @@ async def run(config: ProducerConfig, stop: asyncio.Event) -> int:
         log.error("Stopping: could not open the Zerobus stream: %s", error)
         return EXIT_BAD_CONFIG if isinstance(error, NonRetriableException) else EXIT_STOPPED_ON_ERROR
     call = SinkThread()
-    beat = asyncio.create_task(heartbeat(callback, sink, backoff, buffer, progress, config.heartbeat_seconds))
-    reader = asyncio.create_task(read_into(config, buffer))
+    beat = asyncio.create_task(heartbeat(callback, sink, backoff, buffer, source, progress, config.heartbeat_seconds))
+    reader = asyncio.create_task(read_into(config, buffer, source))
     sender = asyncio.create_task(send_from(buffer, sink, backoff, call, progress))
     stop_requested = asyncio.create_task(stop.wait())
     try:
