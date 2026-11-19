@@ -25,6 +25,7 @@ from refinery.gold.schemas import (
 )
 
 SILVER = spark.conf.get("refinery.silver_schema")
+INCLUDE_AIS_DATES = spark.conf.get("refinery.include_ais_dates", "false") == "true"
 
 
 @dp.materialized_view(
@@ -37,12 +38,12 @@ def dim_status_table():
 
 
 def fact_dates():
-    """Dates the facts use; AIS positions exist only on PROD, so they count only when the table is there."""
+    """Dates the facts use; AIS positions exist only on PROD, where refinery.include_ais_dates is true."""
     dates = [
         silver(spark, "eia_supply").select(F.col("report_week").alias("date")),
         silver(spark, "eia_price").select(F.col("report_week").alias("date")),
     ]
-    if spark.catalog.tableExists(f"{SILVER}.ais_zone_positions"):
+    if INCLUDE_AIS_DATES:
         dates.append(silver(spark, "ais_zone_positions").select(F.to_date("event_ts").alias("date")))
     return dates
 

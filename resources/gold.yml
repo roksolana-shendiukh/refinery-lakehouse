@@ -18,5 +18,14 @@ resources:
 
       configuration:
         refinery.silver_schema: ${var.catalog}.${resources.schemas.silver.name}
+        refinery.include_ais_dates: "false"
+
+targets:
+  prod:
+    resources:
+      pipelines:
+        gold_batch:
+          configuration:
+            refinery.include_ais_dates: "true"
 
 
