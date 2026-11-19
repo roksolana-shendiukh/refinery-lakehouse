@@ -2,6 +2,7 @@ import asyncio
 import os
 import signal
 import sys
+import threading
 from datetime import UTC, datetime
 
 import pytest
@@ -19,6 +20,7 @@ CONFIG = ProducerConfig(
     client_secret="secret",
     ais_api_key="key",
     heartbeat_seconds=3600,
+    drain_timeout_seconds=1,
 )
 
 ENVELOPE = AisEnvelope(datetime(2026, 11, 8, tzinfo=UTC), "PositionReport", '{"MessageType": "PositionReport"}')
@@ -33,11 +35,16 @@ class FakeSink:
         self.recreates = 0
         self.send_errors: list[Exception] = []  # raised by the next sends, one each
         self.recreate_errors: list[Exception] = []
+        self.gate = threading.Event()  # send() waits for it, on the Zerobus thread; open by default
+        self.gate.set()
+        self.threads: set[str] = set()
 
     def open(self) -> None:
         pass
 
     def send(self, record) -> int:
+        self.threads.add(threading.current_thread().name)
+        self.gate.wait(timeout=5)
         if self.send_errors:
             raise self.send_errors.pop(0)
         self.sent.append(record)
@@ -68,11 +75,12 @@ def sink(monkeypatch):
     return created
 
 
-def source(*, then_error: Exception | None = None, sent_one: asyncio.Event | None = None):
-    """A fake aisstream: one message, then an error or silence (waits forever, like a quiet feed)."""
+def source(*, then_error: Exception | None = None, sent_one: asyncio.Event | None = None, count: int = 1):
+    """A fake aisstream: `count` messages, then an error or silence (waits forever, like a quiet feed)."""
 
     async def read_messages(*args):
-        yield ENVELOPE
+        for _ in range(count):
+            yield ENVELOPE
         if sent_one is not None:
             sent_one.set()
         if then_error is not None:
@@ -92,7 +100,7 @@ def test_stop_request_closes_the_stream_and_exits_ok(monkeypatch, sink):
         return await running
 
     assert asyncio.run(scenario()) == main.EXIT_OK
-    assert len(sink[0].sent) == 1
+    assert len(sink[0].sent) == 1  # read, then sent while draining at the latest
     assert sink[0].closed
 
 
@@ -187,11 +195,16 @@ class FakeBackoff:
 RECORD = object()
 
 
+async def direct(function, *args):
+    """Runs a sink call on the event loop itself: enough for send_with_policy tests."""
+    return function(*args)
+
+
 def test_retriable_failures_wait_recreate_and_send_again():
     fake = FakeSink()
     fake.send_errors = [ZerobusException("stream failed"), ZerobusException("stream failed")]
 
-    assert asyncio.run(main.send_with_policy(fake, RECORD, FakeBackoff([0, 0, 0]))) is None
+    assert asyncio.run(main.send_with_policy(fake, RECORD, FakeBackoff([0, 0, 0]), direct)) is None
     assert fake.recreates == 2
     assert fake.sent == [RECORD]
 
@@ -201,7 +214,7 @@ def test_a_failed_recreate_is_retried_too():
     fake.send_errors = [ZerobusException("stream failed")]
     fake.recreate_errors = [ZerobusException("still down")]
 
-    assert asyncio.run(main.send_with_policy(fake, RECORD, FakeBackoff([0, 0]))) is None
+    assert asyncio.run(main.send_with_policy(fake, RECORD, FakeBackoff([0, 0]), direct)) is None
     assert fake.recreates == 1
     assert fake.sent == [RECORD]
 
@@ -210,7 +223,7 @@ def test_spent_budget_stops_with_an_error():
     fake = FakeSink()
     fake.send_errors = [ZerobusException("stream failed")] * 3
 
-    assert asyncio.run(main.send_with_policy(fake, RECORD, FakeBackoff([0, 0]))) == main.EXIT_STOPPED_ON_ERROR
+    assert asyncio.run(main.send_with_policy(fake, RECORD, FakeBackoff([0, 0]), direct)) == main.EXIT_STOPPED_ON_ERROR
     assert fake.sent == []
 
 
@@ -218,7 +231,7 @@ def test_non_retriable_error_stops_at_once_with_bad_config():
     fake = FakeSink()
     fake.send_errors = [NonRetriableException("PERMISSION_DENIED")]
 
-    assert asyncio.run(main.send_with_policy(fake, RECORD, FakeBackoff([0]))) == main.EXIT_BAD_CONFIG
+    assert asyncio.run(main.send_with_policy(fake, RECORD, FakeBackoff([0]), direct)) == main.EXIT_BAD_CONFIG
     assert fake.recreates == 0
 
 
@@ -244,3 +257,66 @@ def test_stop_request_interrupts_the_backoff_wait(monkeypatch, sink):
     assert asyncio.run(scenario()) == main.EXIT_OK
     assert sink[0].recreates == 0
     assert sink[0].closed
+
+
+def test_sink_calls_run_on_the_zerobus_thread(monkeypatch, sink):
+    async def scenario():
+        stop, sent_one = asyncio.Event(), asyncio.Event()
+        monkeypatch.setattr(main, "read_messages", source(sent_one=sent_one))
+        running = asyncio.create_task(main.run(CONFIG, stop))
+        await sent_one.wait()
+        stop.set()
+        return await running
+
+    asyncio.run(scenario())
+    assert sink[0].threads and all(name.startswith("zerobus") for name in sink[0].threads)
+
+
+def test_the_reader_keeps_reading_while_zerobus_is_retrying(monkeypatch, sink):
+    async def scenario():
+        stop, all_read, waiting = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+        class LongBackoff(FakeBackoff):
+            def next_delay(self) -> float | None:
+                waiting.set()
+                return 3600
+
+        monkeypatch.setattr(main, "read_messages", source(sent_one=all_read, count=100))
+        monkeypatch.setattr(main, "Backoff", lambda *args: LongBackoff([]))
+        running = asyncio.create_task(main.run(CONFIG, stop))
+        while not sink:
+            await asyncio.sleep(0)
+        sink[0].send_errors = [ZerobusException("stream failed")]
+        await asyncio.wait_for(waiting.wait(), timeout=5)  # the sender now waits 3600 s to recreate
+        await asyncio.wait_for(all_read.wait(), timeout=5)  # ...and the reader still reads all 100
+        stop.set()
+        return await asyncio.wait_for(running, timeout=5)
+
+    assert asyncio.run(scenario()) == main.EXIT_OK  # the drain times out after 1 s; still a clean stop
+    assert sink[0].sent == []
+    assert sink[0].closed
+
+
+def test_a_stop_sends_what_is_buffered(monkeypatch, sink):
+    async def scenario():
+        stop, all_read = asyncio.Event(), asyncio.Event()
+        monkeypatch.setattr(main, "read_messages", source(sent_one=all_read, count=50))
+        running = asyncio.create_task(main.run(CONFIG, stop))
+        while not sink:
+            await asyncio.sleep(0)
+        sink[0].gate.clear()  # Zerobus is slow: the first send waits, the rest stays in the buffer
+        await asyncio.wait_for(all_read.wait(), timeout=5)
+        stop.set()
+        await asyncio.sleep(0.05)
+        sink[0].gate.set()
+        return await asyncio.wait_for(running, timeout=5)
+
+    assert asyncio.run(scenario()) == main.EXIT_OK
+    assert len(sink[0].sent) == 50
+
+
+def test_a_refused_subscription_still_sends_what_is_buffered(monkeypatch, sink):
+    monkeypatch.setattr(main, "read_messages", source(count=5, then_error=AisSourceError("Api Key Is Not Valid")))
+
+    assert asyncio.run(main.run(CONFIG, asyncio.Event())) == main.EXIT_BAD_CONFIG
+    assert len(sink[0].sent) == 5
