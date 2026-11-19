@@ -55,6 +55,8 @@ class ProducerConfig:
     ping_timeout_seconds: int = 20
     bounding_boxes: tuple = US_COASTS
     message_types: tuple = MESSAGE_TYPES
+    # Shutdown: the longest a clean stop waits for queued records to become durable (SDK default 300 s)
+    flush_timeout_seconds: int = 30
     # Monitoring
     heartbeat_seconds: int = 60
 
@@ -70,5 +72,6 @@ class ProducerConfig:
             ais_url=_optional("AISSTREAM_URL", DEFAULT_AISSTREAM_URL),
             ping_interval_seconds=_optional_int("AIS_PING_INTERVAL_SECONDS", 20),
             ping_timeout_seconds=_optional_int("AIS_PING_TIMEOUT_SECONDS", 20),
+            flush_timeout_seconds=_optional_int("FLUSH_TIMEOUT_SECONDS", 30),
             heartbeat_seconds=_optional_int("HEARTBEAT_SECONDS", 60),
         )
