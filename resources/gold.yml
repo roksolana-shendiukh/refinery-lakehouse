@@ -1,0 +1,22 @@
+# Gold layer: star schema (dimensions and facts) built from silver.
+resources:
+  pipelines:
+    gold_batch:
+      name: refinery-gold
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.gold.name}
+      serverless: true
+      root_path: ../src/refinery_gold
+
+      libraries:
+        - glob:
+            include: ../src/refinery_gold/transformations/**
+
+      environment:
+        dependencies:
+          - ../dist/*.whl
+
+      configuration:
+        refinery.silver_schema: ${var.catalog}.${resources.schemas.silver.name}
+
+
