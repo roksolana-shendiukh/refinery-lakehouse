@@ -6,8 +6,8 @@ from pyspark import pipelines as dp
 from pyspark.sql import functions as F
 
 from refinery.gold.config import silver
-from refinery.gold.dimensions import calendar_start, dim_date, dim_status
-from refinery.gold.schemas import DIM_DATE_DDL, DIM_STATUS_DDL
+from refinery.gold.dimensions import calendar_start, dim_date, dim_fuel_grade, dim_hub, dim_product, dim_status
+from refinery.gold.schemas import DIM_DATE_DDL, DIM_FUEL_GRADE_DDL, DIM_HUB_DDL, DIM_PRODUCT_DDL, DIM_STATUS_DDL
 
 SILVER = spark.conf.get("refinery.silver_schema")
 
@@ -40,3 +40,30 @@ def fact_dates():
 def dim_date_table():
     end = datetime.now(UTC).date() + timedelta(days=365)
     return dim_date(spark, calendar_start(fact_dates()), end)
+
+
+@dp.materialized_view(
+    name="dim_hub",
+    schema=DIM_HUB_DDL,
+    comment="One wholesale trading hub where spot prices are set, plus Unknown / Not applicable / Not yet",
+)
+def dim_hub_table():
+    return dim_hub(silver(spark, "ref_hub"))
+
+
+@dp.materialized_view(
+    name="dim_product",
+    schema=DIM_PRODUCT_DDL,
+    comment="One refined petroleum product supplied on the U.S. market, plus Unknown / Not applicable / Not yet",
+)
+def dim_product_table():
+    return dim_product(silver(spark, "ref_product"))
+
+
+@dp.materialized_view(
+    name="dim_fuel_grade",
+    schema=DIM_FUEL_GRADE_DDL,
+    comment="One priced grade of fuel or crude oil, plus Unknown / Not applicable / Not yet",
+)
+def dim_fuel_grade_table():
+    return dim_fuel_grade(silver(spark, "ref_fuel_grade"))

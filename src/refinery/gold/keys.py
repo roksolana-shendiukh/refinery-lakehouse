@@ -2,7 +2,7 @@
 
 from functools import reduce
 
-from pyspark.sql import DataFrame
+from pyspark.sql import Column, DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.types import StringType
 
@@ -32,3 +32,7 @@ def with_special_members(dim: DataFrame, sk_col: str) -> DataFrame:
             values.append(value.cast(field.dataType).alias(field.name))
         members.append(dim.sparkSession.range(1).select(*values))
     return reduce(DataFrame.unionByName, members, dim)
+
+
+def hashed_sk(business_key: Column) -> Column:
+    return F.xxhash64(business_key)

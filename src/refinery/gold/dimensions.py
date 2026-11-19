@@ -6,7 +6,7 @@ from functools import reduce
 from pyspark.sql import Column, DataFrame, SparkSession
 from pyspark.sql import functions as F
 
-from refinery.gold.keys import with_special_members
+from refinery.gold.keys import hashed_sk, with_special_members
 
 PRICE_TYPES = ("retail", "spot", "n.a.")
 VALUE_STATUSES = ("ok", "withheld", "missing")
@@ -22,6 +22,20 @@ def date_sk(date: Column) -> Column:
     return F.date_format(date, "yyyyMMdd").cast("int")
 
 
+def calendar_start(dates: list[DataFrame]) -> date:
+    """Earliest date across one-column DataFrames named `date`; NULLs and empty tables are skipped."""
+    earliest = reduce(DataFrame.union, dates).agg(F.min("date")).first()[0]
+    if earliest is None:
+        raise ValueError("No fact dates in silver yet: load EIA before building dim_date")
+    return earliest
+
+
+def from_reference(ref: DataFrame, sk_col: str, bk_col: str, attributes: list[str]) -> DataFrame:
+    """A Type 1 dimension from a silver reference table: hashed key, business key, attributes, special members."""
+    dim = ref.select(hashed_sk(F.col(bk_col)).alias(sk_col), bk_col, *attributes)
+    return with_special_members(dim, sk_col)
+
+
 def dim_status(spark: SparkSession) -> DataFrame:
     combinations = spark.createDataFrame(
         [(price_type, value_status) for price_type in PRICE_TYPES for value_status in VALUE_STATUSES],
@@ -33,14 +47,6 @@ def dim_status(spark: SparkSession) -> DataFrame:
         "value_status",
     )
     return with_special_members(dim, "status_sk")
-
-
-def calendar_start(dates: list[DataFrame]) -> date:
-    """Earliest date across one-column DataFrames named `date`; NULLs and empty tables are skipped."""
-    earliest = reduce(DataFrame.union, dates).agg(F.min("date")).first()[0]
-    if earliest is None:
-        raise ValueError("No fact dates in silver yet: load EIA before building dim_date")
-    return earliest
 
 
 def dim_date(spark: SparkSession, start: date, end: date) -> DataFrame:
@@ -55,3 +61,23 @@ def dim_date(spark: SparkSession, start: date, end: date) -> DataFrame:
         F.year("date").cast("smallint").alias("year"),
     )
     return with_special_members(dim, "date_sk")
+
+
+def dim_hub(ref_hub: DataFrame) -> DataFrame:
+    """One wholesale trading hub; served_area_bk is NULL for ZEU (Europe), which serves no U.S. area."""
+    return from_reference(ref_hub, "hub_sk", "hub_bk", ["hub_name", "served_area_bk"])
+
+
+def dim_product(ref_product: DataFrame) -> DataFrame:
+    """One refined product; representative_grade_bk links gasoline and diesel to the grade that prices them."""
+    return from_reference(
+        ref_product,
+        "product_sk",
+        "product_bk",
+        ["product_name", "product_family", "unit", "representative_grade_bk"],
+    )
+
+
+def dim_fuel_grade(ref_fuel_grade: DataFrame) -> DataFrame:
+    """One priced grade of fuel or crude; the price in the fact is always $/gal, source_unit is descriptive."""
+    return from_reference(ref_fuel_grade, "grade_sk", "grade_bk", ["grade_name", "source_unit"])
