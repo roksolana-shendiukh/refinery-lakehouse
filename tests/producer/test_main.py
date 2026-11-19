@@ -324,7 +324,6 @@ def test_a_refused_subscription_still_sends_what_is_buffered(monkeypatch, sink):
     assert len(sink[0].sent) == 5
 
 
-
 def test_heartbeat_logs_one_line_for_aisstream_and_one_for_zerobus(caplog):
     source = SourceStats(connections=3, disconnects=1, silences=1, received=42)
     buffer = MessageBuffer(10)
@@ -343,4 +342,3 @@ def test_heartbeat_logs_one_line_for_aisstream_and_one_for_zerobus(caplog):
 
     assert "aisstream: received 42, reconnects 2 (dropped 1, silent 1), last message never" in caplog.text
     assert "zerobus: sent 40, buffered 1, dropped 0 positions and 0 static" in caplog.text
-    

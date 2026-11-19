@@ -110,4 +110,3 @@ async def read_messages(
             stats.disconnects += 1
             log.warning("AIS connection closed (%s); reconnecting", error)
             continue
-        
