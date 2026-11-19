@@ -53,6 +53,8 @@ class ProducerConfig:
     ais_url: str = DEFAULT_AISSTREAM_URL
     ping_interval_seconds: int = 20
     ping_timeout_seconds: int = 20
+    # Reconnect when the connection is open but no frame arrives for this long (aisstream went silent)
+    silence_seconds: int = 120
     bounding_boxes: tuple = US_COASTS
     message_types: tuple = MESSAGE_TYPES
     # Buffer between the aisstream reader and the Zerobus sender; when full, the oldest positions are dropped
@@ -80,6 +82,7 @@ class ProducerConfig:
             ais_url=_optional("AISSTREAM_URL", DEFAULT_AISSTREAM_URL),
             ping_interval_seconds=_optional_int("AIS_PING_INTERVAL_SECONDS", 20),
             ping_timeout_seconds=_optional_int("AIS_PING_TIMEOUT_SECONDS", 20),
+            silence_seconds=_optional_int("AIS_SILENCE_SECONDS", 120),
             buffer_max_messages=_optional_int("BUFFER_MAX_MESSAGES", 50_000),
             retry_base_seconds=_optional_int("RETRY_BASE_SECONDS", 2),
             retry_max_delay_seconds=_optional_int("RETRY_MAX_DELAY_SECONDS", 60),

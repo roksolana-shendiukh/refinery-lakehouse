@@ -132,6 +132,7 @@ async def read_into(config: ProducerConfig, buffer: MessageBuffer) -> int:
             config.message_types,
             config.ping_interval_seconds,
             config.ping_timeout_seconds,
+            config.silence_seconds,
         ):
             buffer.put(envelope)
     except AisSourceError as error:

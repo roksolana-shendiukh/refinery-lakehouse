@@ -1,5 +1,6 @@
 """Reads AIS messages from aisstream.io. Knows nothing about Zerobus or Protobuf."""
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Iterable
@@ -58,8 +59,13 @@ async def read_messages(
     message_types: Iterable[str],
     ping_interval_seconds: int,
     ping_timeout_seconds: int,
+    silence_seconds: int,
 ) -> AsyncIterator[AisEnvelope]:
-    """Yields AIS messages forever. websockets reconnects by itself, with exponential backoff."""
+    """Yields AIS messages forever. websockets reconnects by itself, with exponential backoff.
+
+    Pings only prove the connection is alive, not that aisstream still sends data. If no frame arrives
+    for `silence_seconds` while pings still succeed, the connection is closed and opened again.
+    """
     request = subscription(api_key, bounding_boxes, message_types)
     async for websocket in websockets.connect(
         url, ping_interval=ping_interval_seconds, ping_timeout=ping_timeout_seconds
@@ -67,7 +73,15 @@ async def read_messages(
         try:
             await websocket.send(request)
             log.info("Subscribed to aisstream")
-            async for frame in websocket:
+            while True:
+                try:
+                    # Only the wait for a frame is timed, not the time the consumer spends on a message.
+                    async with asyncio.timeout(silence_seconds):
+                        frame = await websocket.recv()
+                except TimeoutError:
+                    log.warning("No AIS data for %d s on an open connection; reconnecting", silence_seconds)
+                    await websocket.close()
+                    break
                 envelope = parse(frame, message_types, datetime.now(UTC))
                 if envelope is not None:
                     yield envelope
