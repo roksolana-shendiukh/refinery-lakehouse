@@ -14,3 +14,8 @@ DIM_PRODUCT_DDL = (
 )
 
 DIM_FUEL_GRADE_DDL = "grade_sk BIGINT NOT NULL, grade_bk STRING, grade_name STRING, source_unit STRING"
+
+DIM_AREA_DDL = (
+    "area_sk BIGINT NOT NULL, area_bk STRING, area_name STRING, area_level STRING, parent_area_sk BIGINT, "
+    "country_name STRING, region_name STRING, subregion_name STRING, is_coastal BOOLEAN"
+)

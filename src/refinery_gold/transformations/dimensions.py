@@ -6,8 +6,23 @@ from pyspark import pipelines as dp
 from pyspark.sql import functions as F
 
 from refinery.gold.config import silver
-from refinery.gold.dimensions import calendar_start, dim_date, dim_fuel_grade, dim_hub, dim_product, dim_status
-from refinery.gold.schemas import DIM_DATE_DDL, DIM_FUEL_GRADE_DDL, DIM_HUB_DDL, DIM_PRODUCT_DDL, DIM_STATUS_DDL
+from refinery.gold.dimensions import (
+    calendar_start,
+    dim_area,
+    dim_date,
+    dim_fuel_grade,
+    dim_hub,
+    dim_product,
+    dim_status,
+)
+from refinery.gold.schemas import (
+    DIM_AREA_DDL,
+    DIM_DATE_DDL,
+    DIM_FUEL_GRADE_DDL,
+    DIM_HUB_DDL,
+    DIM_PRODUCT_DDL,
+    DIM_STATUS_DDL,
+)
 
 SILVER = spark.conf.get("refinery.silver_schema")
 
@@ -67,3 +82,13 @@ def dim_product_table():
 )
 def dim_fuel_grade_table():
     return dim_fuel_grade(silver(spark, "ref_fuel_grade"))
+
+
+@dp.materialized_view(
+    name="dim_area",
+    schema=DIM_AREA_DDL,
+    comment="One U.S. fuel market (country, PADD region or subregion) with its hierarchy flattened, "
+    "plus Unknown / Not applicable / Not yet",
+)
+def dim_area_table():
+    return dim_area(silver(spark, "ref_area"))

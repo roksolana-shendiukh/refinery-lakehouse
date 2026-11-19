@@ -6,7 +6,7 @@ from functools import reduce
 from pyspark.sql import Column, DataFrame, SparkSession
 from pyspark.sql import functions as F
 
-from refinery.gold.keys import hashed_sk, with_special_members
+from refinery.gold.keys import UNKNOWN, hashed_sk, with_special_members
 
 PRICE_TYPES = ("retail", "spot", "n.a.")
 VALUE_STATUSES = ("ok", "withheld", "missing")
@@ -81,3 +81,38 @@ def dim_product(ref_product: DataFrame) -> DataFrame:
 def dim_fuel_grade(ref_fuel_grade: DataFrame) -> DataFrame:
     """One priced grade of fuel or crude; the price in the fact is always $/gal, source_unit is descriptive."""
     return from_reference(ref_fuel_grade, "grade_sk", "grade_bk", ["grade_name", "source_unit"])
+
+
+def dim_area(ref_area: DataFrame) -> DataFrame:
+    """One U.S. fuel market with its hierarchy flattened: country, region and subregion names on every row."""
+    area = ref_area.select("area_bk", "area_name", "area_level", "parent_area_bk", "is_coastal")
+    parent = area.select(
+        F.col("area_bk").alias("p_bk"),
+        F.col("area_name").alias("p_name"),
+        F.col("parent_area_bk").alias("p_parent"),
+    )
+    grandparent = area.select(F.col("area_bk").alias("g_bk"), F.col("area_name").alias("g_name"))
+
+    tree = area.join(F.broadcast(parent), F.col("parent_area_bk") == F.col("p_bk"), "left").join(
+        F.broadcast(grandparent), F.col("p_parent") == F.col("g_bk"), "left"
+    )
+
+    level = F.col("area_level")
+    dim = tree.select(
+        hashed_sk(F.col("area_bk")).alias("area_sk"),
+        "area_bk",
+        "area_name",
+        "area_level",
+        F.when(F.col("parent_area_bk").isNull(), F.lit(None).cast("bigint"))
+        .when(F.col("p_bk").isNull(), F.lit(UNKNOWN).cast("bigint"))
+        .otherwise(hashed_sk(F.col("parent_area_bk")))
+        .alias("parent_area_sk"),
+        F.when(level == "country", F.col("area_name"))
+        .when(level == "region", F.col("p_name"))
+        .otherwise(F.col("g_name"))
+        .alias("country_name"),
+        F.when(level == "region", F.col("area_name")).when(level == "subregion", F.col("p_name")).alias("region_name"),
+        F.when(level == "subregion", F.col("area_name")).alias("subregion_name"),
+        "is_coastal",
+    )
+    return with_special_members(dim, "area_sk")

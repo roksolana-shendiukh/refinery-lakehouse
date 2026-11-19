@@ -9,6 +9,7 @@ from refinery.gold.dimensions import (
     VALUE_STATUSES,
     calendar_start,
     date_sk,
+    dim_area,
     dim_date,
     dim_fuel_grade,
     dim_hub,
@@ -17,8 +18,15 @@ from refinery.gold.dimensions import (
     from_reference,
     status_sk,
 )
-from refinery.gold.keys import SPECIAL_MEMBERS, hashed_sk
-from refinery.gold.schemas import DIM_DATE_DDL, DIM_FUEL_GRADE_DDL, DIM_HUB_DDL, DIM_PRODUCT_DDL, DIM_STATUS_DDL
+from refinery.gold.keys import SPECIAL_MEMBERS, UNKNOWN, hashed_sk
+from refinery.gold.schemas import (
+    DIM_AREA_DDL,
+    DIM_DATE_DDL,
+    DIM_FUEL_GRADE_DDL,
+    DIM_HUB_DDL,
+    DIM_PRODUCT_DDL,
+    DIM_STATUS_DDL,
+)
 
 
 def test_dim_status_matches_its_ddl(spark):
@@ -151,3 +159,61 @@ def test_reference_dimension_keeps_every_reference_row_plus_special_members(spar
     dim = from_reference(ref_hub(spark), "hub_sk", "hub_bk", ["hub_name"])
 
     assert sorted(r.hub_bk for r in dim.collect()) == sorted(["NYH", "ZEU", "Unknown", "Not applicable", "Not yet"])
+
+
+AREA_COLUMNS = "area_bk STRING, area_name STRING, area_level STRING, parent_area_bk STRING, is_coastal BOOLEAN"
+
+
+def ref_area(spark):
+    return spark.createDataFrame(
+        [
+            ("NUS", "U.S.", "country", None, True, None, None),
+            ("R10", "PADD 1 (East Coast)", "region", "NUS", True, None, None),
+            ("R1X", "PADD 1A (New England)", "subregion", "R10", True, None, None),
+            ("R20", "PADD 2 (Midwest)", "region", "NUS", False, None, None),
+            ("R9X", "Orphan subregion", "subregion", "R90", False, None, None),
+        ],
+        f"{AREA_COLUMNS}, {SILVER_METADATA}",
+    )
+
+
+def areas_by_bk(spark):
+    return {r.area_bk: r for r in dim_area(ref_area(spark)).collect()}
+
+
+def test_dim_area_matches_its_ddl(spark):
+    assert same_columns(dim_area(ref_area(spark)), spark, DIM_AREA_DDL)
+
+
+def test_dim_area_flattens_the_hierarchy_on_every_level(spark):
+    areas = areas_by_bk(spark)
+
+    def names(bk):
+        return (areas[bk].country_name, areas[bk].region_name, areas[bk].subregion_name)
+
+    assert names("NUS") == ("U.S.", None, None)
+    assert names("R10") == ("U.S.", "PADD 1 (East Coast)", None)
+    assert names("R1X") == ("U.S.", "PADD 1 (East Coast)", "PADD 1A (New England)")
+
+
+def test_dim_area_parent_key_points_to_the_parent_row(spark):
+    areas = areas_by_bk(spark)
+
+    assert areas["NUS"].parent_area_sk is None
+    assert areas["R10"].parent_area_sk == areas["NUS"].area_sk
+    assert areas["R1X"].parent_area_sk == areas["R10"].area_sk
+
+
+def test_dim_area_orphan_keeps_its_row_with_unknown_parent(spark):
+    orphan = areas_by_bk(spark)["R9X"]
+
+    assert orphan.parent_area_sk == UNKNOWN
+    assert orphan.subregion_name == "Orphan subregion"
+    assert orphan.region_name is None
+
+
+def test_dim_area_keeps_every_area_plus_special_members(spark):
+    areas = areas_by_bk(spark)
+
+    assert set(areas) == {"NUS", "R10", "R1X", "R20", "R9X", "Unknown", "Not applicable", "Not yet"}
+    assert areas["R20"].is_coastal is False
