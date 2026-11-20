@@ -1,11 +1,11 @@
-import re
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from refinery.rag.silver import PARSE_ERROR, merge_sql, page_records, split_pages
+from rag_testing import terraform_columns
+
+from refinery.rag.silver import PARSE_ERROR, page_records, split_pages
 
 FIXTURES = Path(__file__).parent / "fixtures"
-RAG_TABLES_TF = Path(__file__).parents[2] / "infra" / "rag_tables.tf"
 PROCESSED_AT = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
 
 
@@ -21,13 +21,6 @@ def bronze_row(doc_type="article", doc_key="61142", html_file="tie_article_61142
     }
 
 
-def terraform_columns(table):
-    """Column names of a databricks_sql_table resource in infra/rag_tables.tf."""
-    resource = RAG_TABLES_TF.read_text(encoding="utf-8").split(f'resource "databricks_sql_table" "{table}"')[1]
-    resource = resource.split('resource "databricks_sql_table"')[0]
-    return re.findall(r'column \{\s*name\s*=\s*"(\w+)"', resource)
-
-
 def test_article_goes_to_silver_normalized():
     silver, quarantined = page_records(bronze_row(), PROCESSED_AT)
 
@@ -36,7 +29,7 @@ def test_article_goes_to_silver_normalized():
     assert silver["published_date"] == date(2024, 1, 2)
     assert silver["contributors"] == "Matthew French"
     assert silver["tags"][:2] == ["Brent", "crude oil"]
-    assert "Russia's crude oil and products" in silver["body_text"]
+    assert "the country's voluntary production cut" in silver["body_text"]
     assert silver["word_count"] == len(silver["body_text"].split())
     assert silver["processed_at"] == PROCESSED_AT
 
@@ -90,11 +83,3 @@ def test_records_have_exactly_the_columns_of_the_terraform_tables():
 
     assert set(silver) == set(terraform_columns("eia_articles"))
     assert set(quarantined) == set(terraform_columns("eia_articles_quarantine"))
-
-
-def test_merge_updates_only_rows_whose_content_changed():
-    sql = merge_sql(["doc_id", "body_text", "processed_at"])
-
-    assert "WHEN MATCHED AND (NOT (t.doc_id <=> s.doc_id) OR NOT (t.body_text <=> s.body_text))" in sql
-    assert "processed_at <=>" not in sql
-    assert "WHEN NOT MATCHED BY SOURCE THEN DELETE" in sql

@@ -1,7 +1,9 @@
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
-from refinery.rag.chunking import chunk_header, page_chunks, split_text, word_count
+from rag_testing import terraform_columns
+
+from refinery.rag.chunking import chunk_header, chunk_records, page_chunks, split_text, word_count
 from refinery.rag.clean import normalize_page
 from refinery.rag.parse import parse_article
 
@@ -90,3 +92,14 @@ def test_real_article_is_chunked_without_losing_text():
     assert all(word_count(chunk) <= 300 for chunk in chunks)
     for block in page.body.split("\n\n"):
         assert any(block in chunk for chunk in chunks)
+
+
+def test_chunk_records_have_exactly_the_columns_of_the_terraform_table():
+    processed_at = datetime(2026, 11, 21, 9, 0, tzinfo=UTC)
+    pages = [silver_page("Short text."), silver_page("Another page.", doc_id="outlook_global_oil")]
+
+    records = chunk_records(pages, processed_at)
+
+    assert [record["chunk_id"] for record in records] == ["article_61142#0000", "outlook_global_oil#0000"]
+    assert all(set(record) == set(terraform_columns("eia_article_chunks")) for record in records)
+    assert all(record["processed_at"] == processed_at for record in records)

@@ -1,20 +1,17 @@
 """Bronze EIA pages to silver eia_articles: parsed, normalized and checked; the pages left out go to quarantine.
 
 Every run reads the latest landed version of every page, so a page is always either in silver or in quarantine.
-MERGE by doc_id changes only rows whose content changed, which keeps the change feed for the chunks small.
+Both tables are created by Terraform; the task MERGEs into them by doc_id (refinery.rag.tables).
 """
 
-import logging
 from datetime import UTC, datetime
 
 from refinery.rag.bronze import ARTICLE, too_many_failures
 from refinery.rag.clean import check_page, normalize_page
 from refinery.rag.parse import PageParseError, parse_article, parse_steo
-
-logger = logging.getLogger(__name__)
+from refinery.rag.tables import merge_records, require_tables
 
 PARSE_ERROR = "parse_error"
-UNCOMPARED_COLUMNS = {"processed_at"}  # a row that only got a new processed_at is not a change
 
 LATEST_PAGES_SQL = """
     SELECT doc_type, doc_key, source_url, listed_title, raw_html, content_hash, load_id
@@ -87,33 +84,9 @@ def split_pages(rows, processed_at):
     return accepted, rejected
 
 
-def merge_sql(columns):
-    """MERGE of the updates view into the target: changed rows updated, new inserted, pages gone deleted."""
-    changed = " OR ".join(f"NOT (t.{column} <=> s.{column})" for column in columns if column not in UNCOMPARED_COLUMNS)
-    return f"""
-        MERGE INTO IDENTIFIER(:target_table) AS t
-        USING rag_updates AS s
-        ON t.doc_id = s.doc_id
-        WHEN MATCHED AND ({changed}) THEN UPDATE SET *
-        WHEN NOT MATCHED THEN INSERT *
-        WHEN NOT MATCHED BY SOURCE THEN DELETE
-    """
-
-
-def merge_records(spark, table_name, records):
-    schema = spark.table(table_name).schema
-    rows = [tuple(record.get(field.name) for field in schema.fields) for record in records]
-    spark.createDataFrame(rows, schema).createOrReplaceTempView("rag_updates")
-
-    result = spark.sql(merge_sql(schema.fieldNames()), args={"target_table": table_name}).collect()
-    logger.info("%s: %s", table_name, result[0].asDict() if result else {})
-
-
 def run_clean(spark, bronze_table, silver_table, quarantine_table, now=lambda: datetime.now(UTC)):
     """One run of clean_articles; returns the counts of kept and rejected pages by reason."""
-    for table_name in (silver_table, quarantine_table):
-        if not spark.catalog.tableExists(table_name):
-            raise RuntimeError(f"{table_name} does not exist; it is created by Terraform (infra/rag_tables.tf)")
+    require_tables(spark, silver_table, quarantine_table)
 
     rows = spark.sql(LATEST_PAGES_SQL, args={"bronze_table": bronze_table}).collect()
     if not rows:
@@ -127,6 +100,6 @@ def run_clean(spark, bronze_table, silver_table, quarantine_table, now=lambda: d
     if too_many_failures(len(rows), counts.get(PARSE_ERROR, 0)):
         raise RuntimeError(f"Too many pages could not be parsed: {counts}")
 
-    merge_records(spark, silver_table, accepted)
-    merge_records(spark, quarantine_table, rejected)
+    merge_records(spark, silver_table, accepted, key="doc_id")
+    merge_records(spark, quarantine_table, rejected, key="doc_id")
     return counts
