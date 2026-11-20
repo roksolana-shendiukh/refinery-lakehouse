@@ -8,6 +8,16 @@ variable "bronze_schema" {
   type        = string
 }
 
+variable "silver_schema" {
+  description = "Schema of the silver RAG table eia_articles (created by the bundle, not by Terraform)"
+  type        = string
+}
+
+variable "quality_schema" {
+  description = "Schema of the RAG quarantine table eia_articles_quarantine (created by the bundle, not by Terraform)"
+  type        = string
+}
+
 variable "warehouse_id" {
   description = "SQL warehouse that runs the table DDL (otherwise the provider creates its own cluster)"
   type        = string
@@ -20,7 +30,7 @@ variable "ais_producer_principal" {
 }
 
 variable "prod_ci_principal" {
-  description = "Application ID of refinery-prod-ci: its live pipeline and alert read the landing table; empty = no grant"
+  description = "Application ID of refinery-prod-ci: its live pipeline and alert read the landing table, its RAG job writes the RAG tables; empty = no grants"
   type        = string
   default     = ""
 }
