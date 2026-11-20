@@ -58,3 +58,10 @@ resource "databricks_grant" "prod_ci_eia_articles_quarantine" {
   principal  = var.prod_ci_principal
   privileges = ["SELECT", "MODIFY"]
 }
+
+resource "databricks_grant" "prod_ci_eia_article_chunks" {
+  count      = var.prod_ci_principal != "" ? 1 : 0
+  table      = databricks_sql_table.eia_article_chunks.id
+  principal  = var.prod_ci_principal
+  privileges = ["SELECT", "MODIFY"]
+}
