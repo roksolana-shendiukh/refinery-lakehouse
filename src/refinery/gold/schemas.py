@@ -24,3 +24,9 @@ FACT_SUPPLY_DDL = (
     "date_sk INT NOT NULL, area_sk BIGINT NOT NULL, product_sk BIGINT NOT NULL, status_sk BIGINT NOT NULL, "
     "rate_kbd DECIMAL(10,1)"
 )
+
+
+FACT_PRICE_DDL = (
+    "date_sk INT NOT NULL, grade_sk BIGINT NOT NULL, area_sk BIGINT NOT NULL, hub_sk BIGINT NOT NULL, "
+    "product_sk BIGINT NOT NULL, status_sk BIGINT NOT NULL, series_id STRING, price DECIMAL(9,3)"
+)
