@@ -1,4 +1,6 @@
-from refinery.gold.keys import NOT_APPLICABLE, NOT_YET, UNKNOWN, with_special_members
+from pyspark.sql import functions as F
+
+from refinery.gold.keys import NOT_APPLICABLE, NOT_YET, UNKNOWN, hashed_sk, lookup_sk, with_special_members
 
 DIM_SCHEMA = "thing_sk BIGINT, thing_bk STRING, size INT, is_big BOOLEAN"
 
@@ -27,3 +29,50 @@ def test_special_members_keeps_the_column_types(spark):
     df = dim(spark)
 
     assert with_special_members(df, "thing_sk").schema == df.schema
+
+
+def fact(spark):
+    return spark.createDataFrame([(1, "R10"), (2, "R99"), (3, None)], "row_id INT, area_bk STRING")
+
+
+def reference(spark):
+    return spark.createDataFrame([("R10",), ("R20",)], "area_bk STRING")
+
+
+def keys_by_row(df):
+    return {r.row_id: r.area_sk for r in df.collect()}
+
+
+def test_lookup_sk_gives_a_known_key_the_dimension_hash(spark):
+    keys = keys_by_row(lookup_sk(fact(spark), reference(spark), "area_bk", "area_bk", "area_sk"))
+    expected = spark.range(1).select(hashed_sk(F.lit("R10"))).first()[0]
+
+    assert keys[1] == expected
+
+
+def test_lookup_sk_gives_unknown_to_a_missing_or_null_key(spark):
+    keys = keys_by_row(lookup_sk(fact(spark), reference(spark), "area_bk", "area_bk", "area_sk"))
+
+    assert keys[2] == UNKNOWN
+    assert keys[3] == UNKNOWN
+
+
+def test_lookup_sk_keeps_every_fact_row_and_adds_only_the_key(spark):
+    result = lookup_sk(fact(spark), reference(spark), "area_bk", "area_bk", "area_sk")
+
+    assert result.count() == 3
+    assert result.columns == ["row_id", "area_bk", "area_sk"]
+
+
+def test_lookup_sk_does_not_duplicate_rows_when_the_reference_has_a_duplicate(spark):
+    duplicated = reference(spark).union(reference(spark))
+
+    assert lookup_sk(fact(spark), duplicated, "area_bk", "area_bk", "area_sk").count() == 3
+
+
+def test_lookup_sk_works_when_the_columns_are_named_differently(spark):
+    renamed = reference(spark).withColumnRenamed("area_bk", "product_bk")
+    keys = keys_by_row(lookup_sk(fact(spark), renamed, "area_bk", "product_bk", "area_sk"))
+
+    assert keys[1] != UNKNOWN
+    assert keys[2] == UNKNOWN
