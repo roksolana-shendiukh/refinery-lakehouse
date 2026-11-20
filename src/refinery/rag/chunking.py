@@ -4,9 +4,14 @@ A chunk is whole paragraphs (a [Chart: ...] line with its source note is a parag
 A paragraph longer than that is split by sentences. The next chunk starts with the end of the previous one
 (whole sentences, up to OVERLAP_WORDS), so a fact on a chunk border is found from both sides.
 Every chunk starts with "Title (Month D, YYYY)", so the chunk alone says what it is from and when.
+
+The chunk_articles task writes the chunks of all silver pages into rag eia_article_chunks (MERGE by chunk_id).
 """
 
 import re
+from datetime import UTC, datetime
+
+from refinery.rag.tables import merge_records, require_tables
 
 MAX_WORDS = 300
 OVERLAP_WORDS = 50
@@ -107,3 +112,21 @@ def page_chunks(page, max_words=MAX_WORDS, overlap_words=OVERLAP_WORDS):
         }
         for index, text in enumerate(split_text(page["body_text"], max_words, overlap_words))
     ]
+
+
+def chunk_records(pages, processed_at):
+    """Chunk records of the given silver pages, as they go into rag eia_article_chunks."""
+    return [{**chunk, "processed_at": processed_at} for page in pages for chunk in page_chunks(page)]
+
+
+def run_chunk(spark, silver_table, chunks_table, now=lambda: datetime.now(UTC)):
+    """One run of chunk_articles; returns the counts of pages and chunks."""
+    require_tables(spark, silver_table, chunks_table)
+    pages = [row.asDict() for row in spark.table(silver_table).collect()]
+    # An empty silver would delete every chunk, and the vector search index would follow.
+    if not pages:
+        raise RuntimeError(f"{silver_table} has no pages; nothing to chunk")
+
+    records = chunk_records(pages, now())
+    merge_records(spark, chunks_table, records, key="chunk_id")
+    return {"pages": len(pages), "chunks": len(records)}

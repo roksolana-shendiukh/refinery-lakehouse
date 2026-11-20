@@ -41,6 +41,17 @@ resources:
               - ${var.catalog}.${resources.schemas.silver.name}.eia_articles
               - --quarantine-table
               - ${var.catalog}.${resources.schemas.quality.name}.eia_articles_quarantine
+        - task_key: chunk_articles
+          depends_on:
+            - task_key: clean_articles
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/ingestion/chunk_eia_articles.py
+            parameters:
+              - --silver-table
+              - ${var.catalog}.${resources.schemas.silver.name}.eia_articles
+              - --chunks-table
+              - ${var.catalog}.${resources.schemas.rag.name}.eia_article_chunks
 
       environments:
         - environment_key: default

@@ -46,7 +46,7 @@ def test_parse_article_drops_page_furniture():
 def test_parse_article_joins_link_text_without_extra_spaces():
     body = parse_article(ARTICLE).body
 
-    assert "Russia’s crude oil and products, several interest rate hikes" in body
+    assert "the country’s voluntary production cut" in body
 
 
 def test_parse_article_turns_a_chart_inside_a_paragraph_into_a_chart_line():
