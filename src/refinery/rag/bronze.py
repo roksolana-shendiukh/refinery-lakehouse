@@ -11,6 +11,10 @@ from pathlib import Path
 ARTICLE = "article"
 OUTLOOK = "outlook"
 LANDING_FOLDER = "eia_articles"
+LANDING_SCHEMA = (
+    "source_url STRING, doc_type STRING, doc_key STRING, listed_title STRING, listed_date STRING, "
+    "source_tags ARRAY<STRING>, raw_html STRING, content_hash STRING, fetched_at STRING, load_id STRING"
+)
 
 
 def content_hash(html):
