@@ -2,7 +2,17 @@ from datetime import date
 from pathlib import Path
 
 from refinery.rag.bronze import ARTICLE, OUTLOOK
-from refinery.rag.clean import NO_TITLE, OFF_TOPIC, PUBLISHED_TOO_EARLY, TOO_SHORT, check_page, topic_mentions
+from refinery.rag.clean import (
+    NO_TITLE,
+    OFF_TOPIC,
+    PUBLISHED_TOO_EARLY,
+    REPOST,
+    TOO_SHORT,
+    check_page,
+    normalize_page,
+    normalize_text,
+    topic_mentions,
+)
 from refinery.rag.parse import ParsedPage, parse_article, parse_steo
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -56,6 +66,33 @@ def test_article_published_before_the_knowledge_base_start_is_rejected():
 
     assert check.reject_reason == PUBLISHED_TOO_EARLY
 
-
 def test_page_without_a_title_is_rejected():
     assert check_page(ARTICLE, page("Crude oil prices rose. " * 30, title=" ")).reject_reason == NO_TITLE
+
+def test_year_end_repost_is_rejected():
+    body = "Today's article was originally published on June 26.\n\n" + "Crude oil prices rose. " * 30
+
+    assert check_page(ARTICLE, page(body)).reject_reason == REPOST
+
+
+def test_a_mention_of_an_earlier_publication_later_in_the_text_is_not_a_repost():
+    body = "Crude oil prices rose. " * 30 + "The data were originally published on March 3."
+
+    assert check_page(ARTICLE, page(body)).accepted
+
+
+def test_normalize_text_uses_plain_quotes_dashes_and_spaces():
+    text = "Russia\u2019s \u201ccrude\u201d  exports\u00a0fell in 2024\u20132025 \u2014 by 5%\u200b. \n\n  Next\tline "
+
+    assert normalize_text(text) == 'Russia\'s "crude" exports fell in 2024-2025 - by 5%.\n\nNext line'
+
+
+def test_normalize_page_normalizes_title_body_and_contributors():
+    parsed = ParsedPage(
+        title="Brent\u2019s price", published_date=date(2025, 1, 2), body="Text\u00a0here", contributors="A\u00a0B"
+    )
+
+    normalized = normalize_page(parsed)
+
+    assert (normalized.title, normalized.body, normalized.contributors) == ("Brent's price", "Text here", "A B")
+    assert normalized.published_date == date(2025, 1, 2)
