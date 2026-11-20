@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from refinery.rag.bronze import (
+    LANDING_SCHEMA,
     article_record,
     articles_to_fetch,
     content_hash,
@@ -44,6 +45,12 @@ def listed(article_id, tags=("crude oil",)):
 
 def steo(html, load_id, page_name="global_oil"):
     return steo_record(page_name, STEO_URL, html, FETCHED_AT, load_id)
+
+
+def test_landing_schema_has_a_column_for_every_record_field():
+    columns = [column.split()[0] for column in LANDING_SCHEMA.split(", ")]
+
+    assert columns == RECORD_FIELDS
 
 
 def test_content_hash_depends_only_on_the_html():

@@ -5,3 +5,52 @@ resources:
       catalog_name: ${var.catalog}
       name: ${var.schema_prefix}rag
       comment: Search-ready EIA article chunks, the vector search index and the assistant's request log
+
+  jobs:
+    rag_index:
+      name: refinery-rag-index
+
+      parameters:
+        - name: landing_path
+          default: /Volumes/${var.catalog}/${resources.schemas.bronze.name}/${resources.volumes.landing.name}
+
+      tasks:
+        - task_key: fetch_articles
+          environment_key: default
+          timeout_seconds: 3600
+          spark_python_task:
+            python_file: ../src/ingestion/fetch_eia_articles.py
+            parameters:
+              - --landing-path
+              - "{{job.parameters.landing_path}}"
+        - task_key: refresh_bronze
+          depends_on:
+            - task_key: fetch_articles
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.rag_bronze.id}
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
+            dependencies:
+              - ../dist/*.whl
+
+  pipelines:
+    rag_bronze:
+      name: refinery-rag-bronze
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.bronze.name}
+      serverless: true
+      root_path: ../src/refinery_bronze
+
+      libraries:
+        - file:
+            path: ../src/refinery_bronze/rag/eia_articles_raw.py
+
+      environment:
+        dependencies:
+          - ../dist/*.whl
+
+      configuration:
+        refinery.landing_path: /Volumes/${var.catalog}/${resources.schemas.bronze.name}/${resources.volumes.landing.name}
