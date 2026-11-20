@@ -15,6 +15,7 @@ SPECIAL_MEMBERS = [
     (NOT_APPLICABLE, "Not applicable"),
     (NOT_YET, "Not yet"),
 ]
+_KNOWN = "_known_bk"
 
 
 def with_special_members(dim: DataFrame, sk_col: str) -> DataFrame:
@@ -36,3 +37,10 @@ def with_special_members(dim: DataFrame, sk_col: str) -> DataFrame:
 
 def hashed_sk(business_key: Column) -> Column:
     return F.xxhash64(business_key)
+
+
+def lookup_sk(fact: DataFrame, reference: DataFrame, bk_col: str, reference_bk_col: str, sk_col: str) -> DataFrame:
+    known = reference.select(F.col(reference_bk_col).alias(_KNOWN)).distinct()
+    joined = fact.join(F.broadcast(known), F.col(bk_col) == F.col(_KNOWN), "left")
+    key = F.when(F.col(_KNOWN).isNull(), F.lit(UNKNOWN).cast("bigint")).otherwise(hashed_sk(F.col(bk_col)))
+    return joined.withColumn(sk_col, key).drop(_KNOWN)

@@ -19,3 +19,14 @@ DIM_AREA_DDL = (
     "area_sk BIGINT NOT NULL, area_bk STRING, area_name STRING, area_level STRING, parent_area_sk BIGINT, "
     "country_name STRING, region_name STRING, subregion_name STRING, is_coastal BOOLEAN"
 )
+
+FACT_SUPPLY_DDL = (
+    "date_sk INT NOT NULL, area_sk BIGINT NOT NULL, product_sk BIGINT NOT NULL, status_sk BIGINT NOT NULL, "
+    "rate_kbd DECIMAL(10,1)"
+)
+
+
+FACT_PRICE_DDL = (
+    "date_sk INT NOT NULL, grade_sk BIGINT NOT NULL, area_sk BIGINT NOT NULL, hub_sk BIGINT NOT NULL, "
+    "product_sk BIGINT NOT NULL, status_sk BIGINT NOT NULL, series_id STRING, price DECIMAL(9,3)"
+)
