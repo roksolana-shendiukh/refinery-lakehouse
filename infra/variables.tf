@@ -18,6 +18,11 @@ variable "quality_schema" {
   type        = string
 }
 
+variable "rag_schema" {
+  description = "Schema of the RAG chunks table eia_article_chunks (created by the bundle, not by Terraform)"
+  type        = string
+}
+
 variable "warehouse_id" {
   description = "SQL warehouse that runs the table DDL (otherwise the provider creates its own cluster)"
   type        = string

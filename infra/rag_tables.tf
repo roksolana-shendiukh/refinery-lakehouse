@@ -209,3 +209,82 @@ resource "databricks_sql_table" "eia_articles_quarantine" {
     comment  = "When the clean_articles task last changed this row (UTC)"
   }
 }
+
+
+resource "databricks_sql_table" "eia_article_chunks" {
+  catalog_name       = var.catalog
+  schema_name        = var.rag_schema
+  name               = "eia_article_chunks"
+  table_type         = "MANAGED"
+  data_source_format = "DELTA"
+  warehouse_id       = var.warehouse_id
+  comment            = "Overlapping chunks of the silver EIA articles and STEO sections, the source of the vector search index. Written by the chunk_articles task of refinery-rag-index (MERGE by chunk_id)."
+
+  # A Delta Sync vector search index reads the changes of its source table from the change data feed.
+  properties = {
+    "delta.enableChangeDataFeed" = "true"
+  }
+
+  column {
+    name     = "chunk_id"
+    type     = "string"
+    nullable = false
+    comment  = "<doc_id>#<chunk_index, 4 digits>; primary key of the vector search index"
+  }
+
+  column {
+    name     = "doc_id"
+    type     = "string"
+    nullable = false
+    comment  = "Page the chunk is from (silver eia_articles.doc_id)"
+  }
+
+  column {
+    name     = "doc_type"
+    type     = "string"
+    nullable = false
+    comment  = "article (Today in Energy) or outlook (STEO section)"
+  }
+
+  column {
+    name     = "title"
+    type     = "string"
+    nullable = false
+    comment  = "Title of the page"
+  }
+
+  column {
+    name     = "published_date"
+    type     = "date"
+    nullable = false
+    comment  = "Article date, or the STEO release date"
+  }
+
+  column {
+    name     = "source_url"
+    type     = "string"
+    nullable = false
+    comment  = "Page on eia.gov"
+  }
+
+  column {
+    name     = "chunk_index"
+    type     = "int"
+    nullable = false
+    comment  = "Position of the chunk in the page, from 0"
+  }
+
+  column {
+    name     = "chunk_text"
+    type     = "string"
+    nullable = false
+    comment  = "\"Title (date)\" line, then whole paragraphs; embedded by the vector search index"
+  }
+
+  column {
+    name     = "processed_at"
+    type     = "timestamp"
+    nullable = false
+    comment  = "When the chunk_articles task last changed this row (UTC)"
+  }
+}
