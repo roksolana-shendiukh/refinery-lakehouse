@@ -22,14 +22,6 @@ def date_sk(date: Column) -> Column:
     return F.date_format(date, "yyyyMMdd").cast("int")
 
 
-def calendar_start(dates: list[DataFrame]) -> date:
-    """Earliest date across one-column DataFrames named `date`; NULLs and empty tables are skipped."""
-    earliest = reduce(DataFrame.union, dates).agg(F.min("date")).first()[0]
-    if earliest is None:
-        raise ValueError("No fact dates in silver yet: load EIA before building dim_date")
-    return earliest
-
-
 def from_reference(ref: DataFrame, sk_col: str, bk_col: str, attributes: list[str]) -> DataFrame:
     """A Type 1 dimension from a silver reference table: hashed key, business key, attributes, special members."""
     dim = ref.select(hashed_sk(F.col(bk_col)).alias(sk_col), bk_col, *attributes)
@@ -49,9 +41,14 @@ def dim_status(spark: SparkSession) -> DataFrame:
     return with_special_members(dim, "status_sk")
 
 
-def dim_date(spark: SparkSession, start: date, end: date) -> DataFrame:
-    """One row per day from start to end (inclusive), plus the special members."""
-    days = spark.range(1).select(F.explode(F.sequence(F.lit(start), F.lit(end))).alias("date"))
+NO_FACT_DATES = "No fact dates in silver yet: load EIA before building dim_date"
+
+
+def dim_date(fact_dates: list[DataFrame], end: date) -> DataFrame:
+    """One row per day from the earliest fact date to end (inclusive), plus the special members."""
+    bounds = reduce(DataFrame.unionByName, fact_dates).agg(F.min("date").alias("start"))
+    start = F.when(F.col("start").isNull(), F.raise_error(F.lit(NO_FACT_DATES))).otherwise(F.col("start"))
+    days = bounds.select(F.explode(F.sequence(start, F.lit(end))).alias("date"))
     dim = days.select(
         date_sk(F.col("date")).alias("date_sk"),
         "date",

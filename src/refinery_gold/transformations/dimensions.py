@@ -7,7 +7,6 @@ from pyspark.sql import functions as F
 
 from refinery.gold.config import silver
 from refinery.gold.dimensions import (
-    calendar_start,
     dim_area,
     dim_date,
     dim_fuel_grade,
@@ -24,9 +23,6 @@ from refinery.gold.schemas import (
     DIM_STATUS_DDL,
 )
 
-SILVER = spark.conf.get("refinery.silver_schema")
-INCLUDE_AIS_DATES = spark.conf.get("refinery.include_ais_dates", "false") == "true"
-
 
 @dp.materialized_view(
     name="dim_status",
@@ -38,24 +34,21 @@ def dim_status_table():
 
 
 def fact_dates():
-    """Dates the facts use; AIS positions exist only on PROD, where refinery.include_ais_dates is true."""
-    dates = [
+    """Dates the EIA facts use; the calendar starts at the earliest EIA week (STM)."""
+    return [
         silver(spark, "eia_supply").select(F.col("report_week").alias("date")),
         silver(spark, "eia_price").select(F.col("report_week").alias("date")),
     ]
-    if INCLUDE_AIS_DATES:
-        dates.append(silver(spark, "ais_zone_positions").select(F.to_date("event_ts").alias("date")))
-    return dates
 
 
 @dp.materialized_view(
     name="dim_date",
     schema=DIM_DATE_DDL,
-    comment="One calendar day from the earliest fact date to a year ahead, plus Unknown / Not applicable / Not yet",
+    comment="One calendar day from the earliest EIA week to a year ahead, plus Unknown / Not applicable / Not yet",
 )
 def dim_date_table():
     end = datetime.now(UTC).date() + timedelta(days=365)
-    return dim_date(spark, calendar_start(fact_dates()), end)
+    return dim_date(fact_dates(), end)
 
 
 @dp.materialized_view(
