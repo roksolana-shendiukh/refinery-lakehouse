@@ -28,6 +28,19 @@ resources:
             - task_key: fetch_articles
           pipeline_task:
             pipeline_id: ${resources.pipelines.rag_bronze.id}
+        - task_key: clean_articles
+          depends_on:
+            - task_key: refresh_bronze
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/ingestion/clean_eia_articles.py
+            parameters:
+              - --bronze-table
+              - ${var.catalog}.${resources.schemas.bronze.name}.eia_articles_raw
+              - --silver-table
+              - ${var.catalog}.${resources.schemas.silver.name}.eia_articles
+              - --quarantine-table
+              - ${var.catalog}.${resources.schemas.quality.name}.eia_articles_quarantine
 
       environments:
         - environment_key: default
