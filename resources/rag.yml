@@ -1,11 +1,5 @@
 # RAG assistant: EIA articles from bronze to search-ready chunks in the rag schema.
 resources:
-  schemas:
-    rag:
-      catalog_name: ${var.catalog}
-      name: ${var.schema_prefix}rag
-      comment: Search-ready EIA article chunks, the vector search index and the assistant's request log
-
   jobs:
     rag_index:
       name: refinery-rag-index
