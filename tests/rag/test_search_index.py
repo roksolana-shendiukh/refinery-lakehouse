@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 from databricks.sdk.errors import NotFound
 from databricks.sdk.service.vectorsearch import (
@@ -17,8 +19,11 @@ from refinery.rag.search_index import (
     ENDPOINT_TYPE,
     SearchConfig,
     create_index_args,
+    delete_endpoint,
+    delete_index,
     ensure_endpoint,
     ensure_index,
+    stop_search,
     sync_index,
     wait_for_endpoint,
     wait_for_index,
@@ -38,6 +43,7 @@ class FakeEndpoints:
     def __init__(self, states=()):
         self.states = list(states)
         self.created = []
+        self.deleted = []
 
     def get_endpoint(self, name):
         if not self.states:
@@ -49,17 +55,36 @@ class FakeEndpoints:
         self.created.append((name, endpoint_type))
         self.states = [EndpointStatusState.PROVISIONING, EndpointStatusState.ONLINE]
 
+    def delete_endpoint(self, name):
+        self.deleted.append(name)
+        self.states = []
+
 
 class FakeIndexes:
-    def __init__(self, index=None):
+    """vector_search_indexes: a deleted index stays visible for delete_polls more get_index calls."""
+
+    def __init__(self, index=None, other_indexes=(), delete_polls=0):
         self.index = index
+        self.other_indexes = list(other_indexes)
+        self.delete_polls = delete_polls
         self.created = []
         self.synced = []
+        self.deleted = []
 
     def get_index(self, name):
+        if self.deleted and self.delete_polls == 0:
+            self.index = None
+        elif self.deleted:
+            self.delete_polls -= 1
         if self.index is None:
             raise NotFound(f"Index {name} not found")
         return self.index
+
+    def delete_index(self, name):
+        self.deleted.append(name)
+
+    def list_indexes(self, endpoint_name):
+        return [SimpleNamespace(name=name) for name in self.other_indexes]
 
     def create_index(self, **args):
         self.created.append(args)
@@ -82,9 +107,9 @@ class FakeApiClient:
 
 
 class FakeClient:
-    def __init__(self, endpoint_states=(), index=None, index_statuses=()):
+    def __init__(self, endpoint_states=(), index=None, index_statuses=(), other_indexes=(), delete_polls=0):
         self.vector_search_endpoints = FakeEndpoints(endpoint_states)
-        self.vector_search_indexes = FakeIndexes(index)
+        self.vector_search_indexes = FakeIndexes(index, other_indexes, delete_polls)
         self.api_client = FakeApiClient(index_statuses)
 
 
@@ -249,3 +274,40 @@ def test_waiting_for_the_index_gives_up_after_the_timeout():
 
     with pytest.raises(TimeoutError, match="100 of 545 rows"):
         wait_for_index(client, CONFIG.index_name, expected_rows=545, timeout_seconds=60, **no_wait())
+
+
+def test_stop_deletes_the_index_then_the_endpoint():
+    client = FakeClient(endpoint_states=[EndpointStatusState.ONLINE], index=existing_index())
+
+    assert stop_search(client, CONFIG, **no_wait()) == {"index_deleted": True, "endpoint_deleted": True}
+    assert client.vector_search_indexes.deleted == [CONFIG.index_name]
+    assert client.vector_search_endpoints.deleted == ["refinery-rag"]
+
+
+def test_stop_with_nothing_left_is_not_an_error():
+    client = FakeClient()
+
+    assert stop_search(client, CONFIG, **no_wait()) == {"index_deleted": False, "endpoint_deleted": False}
+
+
+def test_index_deletion_waits_until_the_index_is_gone():
+    client = FakeClient(index=existing_index(), delete_polls=2)
+    clock = FakeClock()
+
+    assert delete_index(client, CONFIG.index_name, poll_seconds=30, sleep=clock.sleep, clock=clock) is True
+    assert clock.now == 60
+
+
+def test_index_deletion_gives_up_after_the_timeout():
+    client = FakeClient(index=existing_index(), delete_polls=100)
+
+    with pytest.raises(TimeoutError, match="still exists"):
+        delete_index(client, CONFIG.index_name, timeout_seconds=60, **no_wait())
+
+
+def test_endpoint_that_serves_another_index_is_not_deleted():
+    client = FakeClient(endpoint_states=[EndpointStatusState.ONLINE], other_indexes=["main.other.index"])
+
+    with pytest.raises(RuntimeError, match="main.other.index"):
+        delete_endpoint(client, "refinery-rag")
+    assert client.vector_search_endpoints.deleted == []

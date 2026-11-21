@@ -50,6 +50,8 @@ INDEX_FAILED_STATES = {"OFFLINE_FAILED", "ONLINE_PIPELINE_FAILED"}
 INDEX_SYNCABLE_STATES = {"ONLINE", INDEX_SYNCED, "ONLINE_PIPELINE_FAILED"}
 # Embedding the whole knowledge base on the first sync takes the longest
 INDEX_TIMEOUT_SECONDS = 45 * 60
+# An endpoint can be deleted only once its index is gone
+INDEX_DELETE_TIMEOUT_SECONDS = 10 * 60
 
 
 @dataclass(frozen=True)
@@ -205,3 +207,55 @@ def sync_index(client, config, expected_rows=None, poll_seconds=POLL_SECONDS, sl
     return wait_for_index(
         client, config.index_name, expected_rows, poll_seconds=poll_seconds, sleep=sleep, **wait_options
     )
+
+
+def delete_index(
+    client,
+    name,
+    timeout_seconds=INDEX_DELETE_TIMEOUT_SECONDS,
+    poll_seconds=POLL_SECONDS,
+    sleep=time.sleep,
+    clock=time.monotonic,
+):
+    """Delete the index and wait until it is gone. Returns False if there was no index."""
+    if find_index(client, name) is None:
+        logger.info("Vector search index %s does not exist", name)
+        return False
+    logger.info("Deleting vector search index %s", name)
+    try:
+        client.vector_search_indexes.delete_index(name)
+    except NotFound:
+        return False
+
+    deadline = clock() + timeout_seconds
+    while find_index(client, name) is not None:
+        if clock() > deadline:
+            raise TimeoutError(f"Vector search index {name} still exists {timeout_seconds} s after deleting it")
+        sleep(poll_seconds)
+    return True
+
+
+def delete_endpoint(client, name):
+    """Delete the endpoint if it serves no other index. Returns False if there was no endpoint.
+    An endpoint with an index we did not create is somebody else's: it is an error, not something to delete.
+    """
+    if find_endpoint(client, name) is None:
+        logger.info("Vector search endpoint %s does not exist", name)
+        return False
+    other_indexes = [index.name for index in client.vector_search_indexes.list_indexes(name)]
+    if other_indexes:
+        raise RuntimeError(f"Vector search endpoint {name} still serves {other_indexes}; it is not deleted")
+    logger.info("Deleting vector search endpoint %s", name)
+    try:
+        client.vector_search_endpoints.delete_endpoint(name)
+    except NotFound:
+        return False
+    return True
+
+
+def stop_search(client, config, **wait_options):
+    """Delete the index, then the endpoint: nothing is billed for vector search afterward."""
+    return {
+        "index_deleted": delete_index(client, config.index_name, **wait_options),
+        "endpoint_deleted": delete_endpoint(client, config.endpoint_name),
+    }
