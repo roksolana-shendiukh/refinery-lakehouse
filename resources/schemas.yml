@@ -24,3 +24,7 @@ resources:
       catalog_name: ${var.catalog}
       name: ${var.schema_prefix}live
       comment: Live AIS serving tables for the live map (current position and static data per ship)
+    rag:
+      catalog_name: ${var.catalog}
+      name: ${var.schema_prefix}rag
+      comment: Search-ready EIA article chunks, the vector search index and the assistant's request log
