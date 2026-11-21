@@ -6,22 +6,28 @@ Both tables are created by Terraform; the task MERGEs into them by doc_id (refin
 
 from datetime import UTC, datetime
 
+from pyspark.sql import functions as F
+
 from refinery.rag.bronze import ARTICLE, too_many_failures
 from refinery.rag.clean import check_page, normalize_page
 from refinery.rag.parse import PageParseError, parse_article, parse_steo
 from refinery.rag.tables import merge_records, require_tables
 
 PARSE_ERROR = "parse_error"
-
-LATEST_PAGES_SQL = """
-    SELECT doc_type, doc_key, source_url, listed_title, raw_html, content_hash, load_id
-    FROM IDENTIFIER(:bronze_table)
-    QUALIFY row_number() OVER (PARTITION BY doc_type, doc_key ORDER BY load_id DESC) = 1
-"""
+LANDED_COLUMNS = ("source_url", "listed_title", "raw_html", "content_hash", "load_id")
 
 
 def doc_id(doc_type, doc_key):
     return f"{doc_type}_{doc_key}"
+
+
+def latest_pages(bronze):
+    """The latest landed version of every page: max_by on load_id, no window sort (as in gold)."""
+    return (
+        bronze.groupBy("doc_type", "doc_key")
+        .agg(F.max_by(F.struct(*LANDED_COLUMNS), "load_id").alias("latest"))
+        .select("doc_type", "doc_key", "latest.*")
+    )
 
 
 def page_records(row, processed_at):
@@ -88,7 +94,7 @@ def run_clean(spark, bronze_table, silver_table, quarantine_table, now=lambda: d
     """One run of clean_articles; returns the counts of kept and rejected pages by reason."""
     require_tables(spark, silver_table, quarantine_table)
 
-    rows = spark.sql(LATEST_PAGES_SQL, args={"bronze_table": bronze_table}).collect()
+    rows = latest_pages(spark.table(bronze_table)).collect()
     if not rows:
         raise RuntimeError(f"{bronze_table} has no pages; nothing to clean")
 
