@@ -31,18 +31,14 @@ def disvocer_articles(client, tags, since):
     """Articles listed on the tag pages since `since`, one entry per article. A tag page that fails stops the run."""
     articles_by_tag = {}
     for tag in tags:
-        listed = published_since(
-            parse_tag_page(
-                client.get_text(tag_page_url(tag))
-            ), since
-        )
+        listed = published_since(parse_tag_page(client.get_text(tag_page_url(tag))), since)
         logger.info("Tag %r lists %d articles since %s", tag, len(listed), since)
         articles_by_tag[tag] = listed
     return merge_tags(articles_by_tag)
 
 
 def run_fetch(
-        client, landing_root, started_at, tags=TIE_TAGS, since=ARTICLES_SINCE, steo_pages=STEO_PAGES, now=utc_now
+    client, landing_root, started_at, tags=TIE_TAGS, since=ARTICLES_SINCE, steo_pages=STEO_PAGES, now=utc_now
 ):
     """Land new articles and new STEO editions; return the counts. Fails when too many page fetches failed."""
     load_id = make_load_id(started_at)

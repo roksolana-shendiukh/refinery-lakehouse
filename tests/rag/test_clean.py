@@ -66,8 +66,10 @@ def test_article_published_before_the_knowledge_base_start_is_rejected():
 
     assert check.reject_reason == PUBLISHED_TOO_EARLY
 
+
 def test_page_without_a_title_is_rejected():
     assert check_page(ARTICLE, page("Crude oil prices rose. " * 30, title=" ")).reject_reason == NO_TITLE
+
 
 def test_year_end_repost_is_rejected():
     body = "Today's article was originally published on June 26.\n\n" + "Crude oil prices rose. " * 30
