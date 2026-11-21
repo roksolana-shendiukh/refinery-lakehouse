@@ -19,7 +19,9 @@ from refinery.rag.search_index import (
     create_index_args,
     ensure_endpoint,
     ensure_index,
+    sync_index,
     wait_for_endpoint,
+    wait_for_index,
 )
 
 CONFIG = SearchConfig(
@@ -52,6 +54,7 @@ class FakeIndexes:
     def __init__(self, index=None):
         self.index = index
         self.created = []
+        self.synced = []
 
     def get_index(self, name):
         if self.index is None:
@@ -61,11 +64,28 @@ class FakeIndexes:
     def create_index(self, **args):
         self.created.append(args)
 
+    def sync_index(self, name):
+        self.synced.append(name)
+
+
+class FakeApiClient:
+    """api_client.do for GET /vector-search/indexes: the index goes through (detailed_state, rows) statuses."""
+
+    def __init__(self, statuses=()):
+        self.statuses = list(statuses)
+
+    def do(self, method, path):
+        if not self.statuses:
+            raise NotFound(f"{path} not found")
+        state, rows = self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
+        return {"status": {"detailed_state": state, "ready": state.startswith("ONLINE"), "indexed_row_count": rows}}
+
 
 class FakeClient:
-    def __init__(self, endpoint_states=(), index=None):
+    def __init__(self, endpoint_states=(), index=None, index_statuses=()):
         self.vector_search_endpoints = FakeEndpoints(endpoint_states)
         self.vector_search_indexes = FakeIndexes(index)
+        self.api_client = FakeApiClient(index_statuses)
 
 
 class FakeClock:
@@ -177,3 +197,55 @@ def test_existing_index_over_another_table_is_an_error():
 
     with pytest.raises(RuntimeError, match="other.table"):
         ensure_index(client, CONFIG)
+
+
+def test_sync_starts_an_update_and_waits_until_all_chunks_are_indexed():
+    client = FakeClient(
+        index_statuses=[
+            ("ONLINE_NO_PENDING_UPDATE", 545),
+            ("ONLINE_TRIGGERED_UPDATE", 545),
+            ("ONLINE_NO_PENDING_UPDATE", 550),
+        ]
+    )
+
+    status = sync_index(client, CONFIG, expected_rows=550, **no_wait())
+
+    assert client.vector_search_indexes.synced == [CONFIG.index_name]
+    assert status["indexed_row_count"] == 550
+
+
+def test_sync_of_a_new_index_waits_for_its_first_snapshot_without_starting_another():
+    client = FakeClient(
+        index_statuses=[
+            ("PROVISIONING_INITIAL_SNAPSHOT", 0),
+            ("PROVISIONING_INITIAL_SNAPSHOT", 0),
+            ("ONLINE_NO_PENDING_UPDATE", 545),
+        ]
+    )
+
+    sync_index(client, CONFIG, expected_rows=545, **no_wait())
+
+    assert client.vector_search_indexes.synced == []
+
+
+def test_waiting_for_the_index_does_not_stop_before_every_row_is_indexed():
+    client = FakeClient(index_statuses=[("ONLINE_NO_PENDING_UPDATE", 500), ("ONLINE_NO_PENDING_UPDATE", 545)])
+    clock = FakeClock()
+
+    wait_for_index(client, CONFIG.index_name, expected_rows=545, poll_seconds=30, sleep=clock.sleep, clock=clock)
+
+    assert clock.now == 30
+
+
+def test_failed_index_update_is_an_error():
+    client = FakeClient(index_statuses=[("ONLINE_TRIGGERED_UPDATE", 0), ("ONLINE_PIPELINE_FAILED", 0)])
+
+    with pytest.raises(RuntimeError, match="ONLINE_PIPELINE_FAILED"):
+        wait_for_index(client, CONFIG.index_name, expected_rows=545, **no_wait())
+
+
+def test_waiting_for_the_index_gives_up_after_the_timeout():
+    client = FakeClient(index_statuses=[("ONLINE_TRIGGERED_UPDATE", 100)])
+
+    with pytest.raises(TimeoutError, match="100 of 545 rows"):
+        wait_for_index(client, CONFIG.index_name, expected_rows=545, timeout_seconds=60, **no_wait())
