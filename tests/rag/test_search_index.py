@@ -23,6 +23,8 @@ from refinery.rag.search_index import (
     delete_index,
     ensure_endpoint,
     ensure_index,
+    refresh_search,
+    start_search,
     stop_search,
     sync_index,
     wait_for_endpoint,
@@ -311,3 +313,40 @@ def test_endpoint_that_serves_another_index_is_not_deleted():
     with pytest.raises(RuntimeError, match="main.other.index"):
         delete_endpoint(client, "refinery-rag")
     assert client.vector_search_endpoints.deleted == []
+
+
+def test_start_creates_the_endpoint_and_index_and_waits_for_the_first_sync():
+    client = FakeClient(
+        index_statuses=[("PROVISIONING_INITIAL_SNAPSHOT", 0), ("ONLINE_NO_PENDING_UPDATE", 545)],
+    )
+
+    result = start_search(client, CONFIG, expected_rows=545, **no_wait())
+
+    assert result == {"endpoint_created": True, "index_created": True, "indexed_rows": 545}
+    assert client.vector_search_indexes.synced == []
+
+
+def test_start_again_reuses_everything_and_syncs():
+    client = FakeClient(
+        endpoint_states=[EndpointStatusState.ONLINE],
+        index=existing_index(),
+        index_statuses=[("ONLINE_NO_PENDING_UPDATE", 545)],
+    )
+
+    result = start_search(client, CONFIG, expected_rows=545, **no_wait())
+
+    assert result == {"endpoint_created": False, "index_created": False, "indexed_rows": 545}
+    assert client.vector_search_indexes.synced == [CONFIG.index_name]
+
+
+def test_refresh_without_an_index_does_nothing():
+    client = FakeClient()
+
+    assert refresh_search(client, CONFIG, expected_rows=545, **no_wait()) == {"synced": False}
+    assert client.vector_search_indexes.synced == []
+
+
+def test_refresh_syncs_an_existing_index():
+    client = FakeClient(index=existing_index(), index_statuses=[("ONLINE_NO_PENDING_UPDATE", 550)])
+
+    assert refresh_search(client, CONFIG, expected_rows=550, **no_wait()) == {"synced": True, "indexed_rows": 550}

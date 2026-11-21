@@ -21,8 +21,13 @@ from databricks.sdk.service.vectorsearch import (
 
 logger = logging.getLogger(__name__)
 
+# One endpoint per workspace for the assistant
+ENDPOINT_NAME = "refinery-rag"
 # STANDARD: low-latency queries; STORAGE_OPTIMIZED is for far larger indexes and answers slower
 ENDPOINT_TYPE = EndpointType.STANDARD
+# Pay-per-token Foundation Model API endpoint; embeds the chunks here and the questions in the agent
+EMBEDDING_MODEL = "databricks-gte-large-en"
+
 PRIMARY_KEY = "chunk_id"
 TEXT_COLUMN = "chunk_text"
 COLUMNS_TO_SYNC = (
@@ -259,3 +264,24 @@ def stop_search(client, config, **wait_options):
         "index_deleted": delete_index(client, config.index_name, **wait_options),
         "endpoint_deleted": delete_endpoint(client, config.endpoint_name),
     }
+
+
+def start_search(client, config, expected_rows, **wait_options):
+    """Create what is missing (endpoint, index) and sync the index with the chunks table."""
+    endpoint_created = ensure_endpoint(client, config, **wait_options)
+    index_created = ensure_index(client, config)
+    status = sync_index(client, config, expected_rows, **wait_options)
+    return {
+        "endpoint_created": endpoint_created,
+        "index_created": index_created,
+        "indexed_rows": status.get("indexed_row_count"),
+    }
+
+
+def refresh_search(client, config, expected_rows, **wait_options):
+    """Sync the index after the chunks changed, if the index exists."""
+    if find_index(client, config.index_name) is None:
+        logger.info("Vector search index %s does not exist; nothing to sync", config.index_name)
+        return {"synced": False}
+    status = sync_index(client, config, expected_rows, **wait_options)
+    return {"synced": True, "indexed_rows": status.get("indexed_row_count")}

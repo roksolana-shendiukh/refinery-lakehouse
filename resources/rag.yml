@@ -46,6 +46,64 @@ resources:
               - ${var.catalog}.${resources.schemas.silver.name}.eia_articles
               - --chunks-table
               - ${var.catalog}.${resources.schemas.rag.name}.eia_article_chunks
+        - task_key: sync_search
+          depends_on:
+            - task_key: chunk_articles
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/ingestion/vector_search.py
+            parameters:
+              - sync
+              - --chunks-table
+              - ${var.catalog}.${resources.schemas.rag.name}.eia_article_chunks
+              - --index-name
+              - ${var.catalog}.${resources.schemas.rag.name}.eia_article_chunks_index
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
+            dependencies:
+              - ../dist/*.whl
+
+    rag_search_start:
+      name: refinery-rag-search-start
+
+      tasks:
+        - task_key: start_search
+          environment_key: default
+          # Endpoint (up to 30 min) and the first sync of the index (up to 45 min)
+          timeout_seconds: 5400
+          spark_python_task:
+            python_file: ../src/ingestion/vector_search.py
+            parameters:
+              - start
+              - --chunks-table
+              - ${var.catalog}.${resources.schemas.rag.name}.eia_article_chunks
+              - --index-name
+              - ${var.catalog}.${resources.schemas.rag.name}.eia_article_chunks_index
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
+            dependencies:
+              - ../dist/*.whl
+
+    rag_search_stop:
+      name: refinery-rag-search-stop
+
+      tasks:
+        - task_key: stop_search
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/ingestion/vector_search.py
+            parameters:
+              - stop
+              - --chunks-table
+              - ${var.catalog}.${resources.schemas.rag.name}.eia_article_chunks
+              - --index-name
+              - ${var.catalog}.${resources.schemas.rag.name}.eia_article_chunks_index
 
       environments:
         - environment_key: default
