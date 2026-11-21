@@ -39,8 +39,17 @@ COLUMNS_TO_SYNC = (
 # A new endpoint takes several minutes to come online
 ENDPOINT_TIMEOUT_SECONDS = 30 * 60
 POLL_SECONDS = 30
+
 # States from which an endpoint does not come online by waiting
 ENDPOINT_FAILED_STATES = {EndpointStatusState.OFFLINE, EndpointStatusState.RED_STATE, EndpointStatusState.DELETED}
+
+# Index states (status.detailed_state). ready=True alone is not enough: an online index can have a failed update.
+INDEX_SYNCED = "ONLINE_NO_PENDING_UPDATE"
+INDEX_FAILED_STATES = {"OFFLINE_FAILED", "ONLINE_PIPELINE_FAILED"}
+# A sync can be started only from these; in any other state the index is already provisioning or updating
+INDEX_SYNCABLE_STATES = {"ONLINE", INDEX_SYNCED, "ONLINE_PIPELINE_FAILED"}
+# Embedding the whole knowledge base on the first sync takes the longest
+INDEX_TIMEOUT_SECONDS = 45 * 60
 
 
 @dataclass(frozen=True)
@@ -141,3 +150,58 @@ def ensure_index(client, config):
         raise RuntimeError(f"Index {config.index_name} reads {source_table}, expected {config.source_table}")
     logger.info("Vector search index %s already exists", config.index_name)
     return False
+
+
+def index_status(client, name):
+    """The index status from the REST API, or None if there is no index."""
+    try:
+        response = client.api_client.do("GET", f"/api/2.0/vector-search/indexes/{name}")
+    except NotFound:
+        return None
+    return response.get("status") or {}
+
+
+def wait_for_index(
+    client,
+    name,
+    expected_rows=None,
+    timeout_seconds=INDEX_TIMEOUT_SECONDS,
+    poll_seconds=POLL_SECONDS,
+    sleep=time.sleep,
+    clock=time.monotonic,
+):
+    """Wait until the index has no pending update (and holds expected_rows, if given); fail on a failed update."""
+    deadline = clock() + timeout_seconds
+    while True:
+        status = index_status(client, name)
+        if status is None:
+            raise RuntimeError(f"Vector search index {name} not found")
+        state, rows = status.get("detailed_state"), status.get("indexed_row_count")
+        if state == INDEX_SYNCED and status.get("ready") and expected_rows in (None, rows):
+            logger.info("Index %s is synced: %s rows", name, rows)
+            return status
+        if state in INDEX_FAILED_STATES:
+            raise RuntimeError(f"Vector search index {name} is {state}: {status.get('message')}")
+        if clock() >= deadline:
+            raise TimeoutError(f"Vector search index {name} is {state} with {rows} of {expected_rows} rows")
+        logger.info("Index %s is %s with %s rows; waiting", name, state, rows)
+        sleep(poll_seconds)
+
+
+def sync_index(client, config, expected_rows=None, poll_seconds=POLL_SECONDS, sleep=time.sleep, **wait_options):
+    """Start a sync of the index (unless it is already provisioning or updating) and wait until it is done.
+    expected_rows is the row count of the chunks table: the sync is done when the index holds exactly that many.
+    """
+    state = (index_status(client, config.index_name) or {}).get("detailed_state")
+    if state in INDEX_SYNCABLE_STATES:
+        logger.info("Syncing index %s (was %s)", config.index_name, state)
+        client.vector_search_indexes.sync_index(config.index_name)
+        # The state turns from "no pending update" to "updating" only after a moment; do not read it too early.
+        sleep(poll_seconds)
+    else:
+        logger.info(
+            "Index %s is %s; waiting for the running update instead of starting a sync", config.index_name, state
+        )
+    return wait_for_index(
+        client, config.index_name, expected_rows, poll_seconds=poll_seconds, sleep=sleep, **wait_options
+    )
