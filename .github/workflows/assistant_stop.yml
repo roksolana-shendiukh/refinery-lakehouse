@@ -1,0 +1,36 @@
+name: assistant-stop
+
+# Manual only: deletes the vector search index and endpoint of the RAG assistant.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: assistant
+  cancel-in-progress: false
+
+jobs:
+  stop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: prod
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_AUTH_TYPE: oauth-m2m
+    steps:
+      - uses: actions/checkout@v7
+
+      # The jobs install dist/*.whl; build it as deploy-prod does, so the bundle resolves the same files
+      - name: Build the wheel
+        uses: ./.github/actions/build-wheel
+
+      - uses: ./.github/actions/setup-databricks-cli
+        with:
+          version: 0.296.1
+
+      - name: Delete vector search
+        run: databricks bundle run -t prod rag_search_stop
