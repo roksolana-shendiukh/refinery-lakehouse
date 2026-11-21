@@ -43,7 +43,7 @@ packages = ["src/refinery"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "src/apps/live_map"]
+pythonpath = ["src", "src/apps/live_map", "src/apps/assistant"]
 
 [tool.ruff]
 line-length = 120
