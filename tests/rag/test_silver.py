@@ -3,7 +3,7 @@ from pathlib import Path
 
 from rag_testing import terraform_columns
 
-from refinery.rag.silver import PARSE_ERROR, page_records, split_pages
+from refinery.rag.silver import PARSE_ERROR, latest_pages, page_records, split_pages
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PROCESSED_AT = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
@@ -83,3 +83,31 @@ def test_records_have_exactly_the_columns_of_the_terraform_tables():
 
     assert set(silver) == set(terraform_columns("eia_articles"))
     assert set(quarantined) == set(terraform_columns("eia_articles_quarantine"))
+
+
+def test_latest_pages_keeps_the_newest_landed_version_of_every_page(spark):
+    bronze = spark.createDataFrame(
+        [
+            ("outlook", "global_oil", "u1", None, "November edition", "h1", "20261110T080000Z", "x"),
+            ("outlook", "global_oil", "u1", None, "December edition", "h2", "20261208T080000Z", "x"),
+            ("article", "61142", "u2", "Brent fell", "article", "h3", "20261120T120000Z", "x"),
+        ],
+        "doc_type STRING, doc_key STRING, source_url STRING, listed_title STRING, raw_html STRING, "
+        "content_hash STRING, load_id STRING, source_file STRING",
+    )
+
+    latest = latest_pages(bronze)
+
+    assert latest.columns == [
+        "doc_type",
+        "doc_key",
+        "source_url",
+        "listed_title",
+        "raw_html",
+        "content_hash",
+        "load_id",
+    ]
+    assert {(row.doc_key, row.raw_html, row.load_id) for row in latest.collect()} == {
+        ("global_oil", "December edition", "20261208T080000Z"),
+        ("61142", "article", "20261120T120000Z"),
+    }
