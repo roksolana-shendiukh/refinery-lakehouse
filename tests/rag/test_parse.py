@@ -12,7 +12,7 @@ STEO = (FIXTURES / "steo_global_oil.html").read_text(encoding="utf-8")
 TAG_PAGE = (FIXTURES / "tie_tag_page.html").read_text(encoding="utf-8")
 
 
-def small_article(body, contributor='<p><strong>Principal contributor: </strong>EIA Staff</p>'):
+def small_article(body, contributor="<p><strong>Principal contributor: </strong>EIA Staff</p>"):
     return (
         '<div class="tie-article"><span class="date">May 1, 2026</span>'
         f'<h1><a href="#">Title</a></h1>{body}{contributor}</div>'
@@ -39,7 +39,14 @@ def test_parse_article_keeps_the_text_from_the_first_chart_to_the_last_paragraph
 def test_parse_article_drops_page_furniture():
     body = parse_article(ARTICLE).body
 
-    for text in ("In-brief analysis", "Principal contributor", "Tags:", "More recent articles", "About EIA", "Glossary"):
+    for text in (
+        "In-brief analysis",
+        "Principal contributor",
+        "Tags:",
+        "More recent articles",
+        "About EIA",
+        "Glossary",
+    ):
         assert text not in body
 
 

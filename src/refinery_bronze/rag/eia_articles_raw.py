@@ -20,11 +20,11 @@ DATA_COLUMNS = [column.split()[0] for column in LANDING_SCHEMA.split(", ")]
 def eia_articles_raw():
     landed = (
         spark.readStream.format("cloudFiles")
-            .option("cloudFiles.format", "json")
-            .option("cloudFiles.partitionColumns", "")
-            .option("rescuedDataColumn", "_rescued_data")
-            .schema(LANDING_SCHEMA)
-            .load(f"{LANDING_PATH}/{LANDING_FOLDER}/")
-            .withColumn("source_file", F.col("_metadata.file_path"))
+        .option("cloudFiles.format", "json")
+        .option("cloudFiles.partitionColumns", "")
+        .option("rescuedDataColumn", "_rescued_data")
+        .schema(LANDING_SCHEMA)
+        .load(f"{LANDING_PATH}/{LANDING_FOLDER}/")
+        .withColumn("source_file", F.col("_metadata.file_path"))
     )
     return with_landing_metadata(landed, DATA_COLUMNS)
