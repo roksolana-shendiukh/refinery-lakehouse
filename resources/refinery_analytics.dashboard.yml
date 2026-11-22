@@ -1,0 +1,9 @@
+resources:
+  dashboards:
+    refinery_analytics:
+      display_name: "Refinery Analytics"
+      file_path: ../dashboards/refinery_analytics.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${resources.schemas.gold.name}
+      embed_credentials: false
