@@ -1,0 +1,74 @@
+# RAG assistant: EIA articles from bronze to search-ready chunks in the rag schema.
+resources:
+  jobs:
+    rag_index:
+      name: refinery-rag-index
+
+      parameters:
+        - name: landing_path
+          default: /Volumes/${var.catalog}/${resources.schemas.bronze.name}/${resources.volumes.landing.name}
+
+      tasks:
+        - task_key: fetch_articles
+          environment_key: default
+          timeout_seconds: 3600
+          spark_python_task:
+            python_file: ../src/ingestion/fetch_eia_articles.py
+            parameters:
+              - --landing-path
+              - "{{job.parameters.landing_path}}"
+        - task_key: refresh_bronze
+          depends_on:
+            - task_key: fetch_articles
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.rag_bronze.id}
+        - task_key: clean_articles
+          depends_on:
+            - task_key: refresh_bronze
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/ingestion/clean_eia_articles.py
+            parameters:
+              - --bronze-table
+              - ${var.catalog}.${resources.schemas.bronze.name}.eia_articles_raw
+              - --silver-table
+              - ${var.catalog}.${resources.schemas.silver.name}.eia_articles
+              - --quarantine-table
+              - ${var.catalog}.${resources.schemas.quality.name}.eia_articles_quarantine
+        - task_key: chunk_articles
+          depends_on:
+            - task_key: clean_articles
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/ingestion/chunk_eia_articles.py
+            parameters:
+              - --silver-table
+              - ${var.catalog}.${resources.schemas.silver.name}.eia_articles
+              - --chunks-table
+              - ${var.catalog}.${resources.schemas.rag.name}.eia_article_chunks
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
+            dependencies:
+              - ../dist/*.whl
+
+  pipelines:
+    rag_bronze:
+      name: refinery-rag-bronze
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.bronze.name}
+      serverless: true
+      root_path: ../src/refinery_bronze
+
+      libraries:
+        - file:
+            path: ../src/refinery_bronze/rag/eia_articles_raw.py
+
+      environment:
+        dependencies:
+          - ../dist/*.whl
+
+      configuration:
+        refinery.landing_path: /Volumes/${var.catalog}/${resources.schemas.bronze.name}/${resources.volumes.landing.name}
