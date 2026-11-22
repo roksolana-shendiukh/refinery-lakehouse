@@ -29,6 +29,7 @@ app = [
     "databricks-sql-connector>=4",
     "databricks-sdk",
     "pandas",
+    "openai>=3.57.0",
 ]
 
 [tool.uv]
