@@ -3,7 +3,6 @@
 # The live pipeline is triggered by default: deploys never start it, so it cannot be left running.
 # The freshness alert is paused by default: with the producer off it would fire every 15 minutes and
 # keep waking the SQL warehouse.
-# For a demo, one PR sets continuous: true AND pause_status: UNPAUSED; one PR after the demo reverts both.
 targets:
   prod:
     resources:
@@ -97,8 +96,11 @@ targets:
                 scope: ${var.secret_scope}
                 key: refinery-live-map-carto-api-key
                 permission: READ
+          # Only coastal operations open the live map. The group is an account group created once
+          # by hand (our service principals cannot create account groups); it must exist before
+          # this deploys. The app reads the live tables as its own service principal.
           permissions:
             - level: CAN_MANAGE
               user_name: ${var.operator_user}
             - level: CAN_USE
-              group_name: users
+              group_name: refinery_coastal_operations
