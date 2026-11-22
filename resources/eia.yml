@@ -1,4 +1,4 @@
-# Batch path: weekly EIA supply and prices, landed as JSON files, then read by bronze.
+# Batch path: weekly EIA supply and prices, landed as JSON files, read by bronze, then silver, gold and its access policies.  
 resources:
   volumes:
     landing:
@@ -47,6 +47,21 @@ resources:
             - task_key: refresh_bronze
           pipeline_task:
             pipeline_id: ${resources.pipelines.silver_batch.id}
+        - task_key: refresh_gold
+          depends_on:
+            - task_key: refresh_silver
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.gold_batch.id}
+        - task_key: apply_gold_policies
+          depends_on:
+            - task_key: refresh_gold
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ../governance/gold_abac.sql
+            parameters:
+              catalog: ${var.catalog}
+              gold_schema: ${resources.schemas.gold.name}
 
       environments:
         - environment_key: default

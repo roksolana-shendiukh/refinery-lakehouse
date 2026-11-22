@@ -41,9 +41,13 @@ targets:
     default: true
     workspace:
       host: https://dbc-72291aa5-f437.cloud.databricks.com
+      
     variables:
       catalog: refinery_dev
       secret_scope: refinery-kv
+      warehouse_id:
+        lookup:
+          warehouse: Serverless Starter Warehouse
 
   prod:
     mode: production
