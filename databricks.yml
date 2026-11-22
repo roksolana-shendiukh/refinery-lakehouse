@@ -69,6 +69,7 @@ targets:
       # Schema grants live here because only the schema owner (refinery-prod-ci, this bundle) can grant on a schema.
       # Bundle grants are authoritative: a schema holds exactly these grants, so every schema-level grant is listed.
       # Table grants are made by Terraform, which owns the tables it creates (infra/grants.tf).
+      # Groups are account groups, created once by hand (our service principals cannot create account groups).
       schemas:
         bronze:
           grants:
@@ -84,6 +85,19 @@ targets:
           grants:
             - principal: ${var.infra_service_principal}
               privileges: [USE_SCHEMA, CREATE_TABLE]
+            # The DQ dashboard reads the quality tables with the viewer's rights.
+            - principal: refinery_data_engineers
+              privileges: [USE_SCHEMA, SELECT]
+        # Analysts read gold; the ABAC policies decide which rows and prices each group sees.
+        gold:
+          grants:
+            - principal: refinery_market_analysts
+              privileges: [USE_SCHEMA, SELECT]
+            - principal: refinery_region_R30
+              privileges: [USE_SCHEMA, SELECT]
+        # Coastal operations get no grants here: the live map app reads the live tables as its own
+        # service principal, and access to the app goes through the refinery_coastal_operations group
+        # (resources/streaming.yml).
         live:
           grants:
             - principal: ${var.live_map_principal}
