@@ -8,16 +8,19 @@ principal signs in by itself.
 import logging
 
 from assistant.agent import build_agent
+from assistant.layout import not_configured, page
 from assistant.request_log import RequestLog
 from assistant.settings import AssistantSettings, SettingsError
-from dash import Dash, html
+from dash import Dash
 from databricks.sdk import WorkspaceClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger(__name__)
 
 
-app = Dash(__name__, title="Refinery · Petroleum market assistant")
+FONTS = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap"
+
+app = Dash(__name__, title="Refinery · Petroleum market assistant", external_stylesheets=[FONTS])
 server = app.server
 
 
@@ -25,12 +28,12 @@ try:
     settings = AssistantSettings.from_env()
 except SettingsError as error:
     log.error("The assistant is not configured: %s", error)
-    app.layout = html.Main([html.H1("Refinery assistant"), html.P(f"The assistant is not configured: {error}")])
+    app.layout = not_configured(str(error))
 else:
     workspace_client = WorkspaceClient()
     agent = build_agent(settings, workspace_client)
     request_log = RequestLog(workspace_client, settings.warehouse_id, settings.log_table)
-    app.layout = html.Main([html.H1("Refinery assistant"), html.P("Ask a question about the petroleum market.")])
+    app.layout = page()
 
 
 if __name__ == "__main__":
