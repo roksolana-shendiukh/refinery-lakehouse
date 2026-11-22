@@ -4,7 +4,7 @@ import pytest
 from databricks.labs.dqx.engine import DQEngine
 from databricks.labs.dqx.metrics_observer import DQMetricsObserver
 
-from refinery.silver.metrics import summary_metrics
+from refinery.silver.metrics import new_runs, summary_metrics
 from refinery.silver.quality import check, not_null
 
 CHECKS = [not_null("t", "a", "error"), not_null("t", "b", "warn")]
@@ -41,3 +41,17 @@ def test_rows_name_the_table_and_share_one_run(metrics):
     assert {row.input_location for row in metrics} == {"t"}
     assert {row.quarantine_location for row in metrics} == {"t_quarantine"}
     assert len({row.run_id for row in metrics}) == 1
+
+
+def test_new_runs_skips_runs_already_in_history(spark):
+    latest = spark.createDataFrame([("r1", "x"), ("r1", "y"), ("r2", "x")], "run_id STRING, metric_name STRING")
+    history = spark.createDataFrame([("r1", "x")], "run_id STRING, metric_name STRING")
+
+    assert sorted(new_runs(latest, history).collect()) == [("r2", "x")]
+
+
+def test_new_runs_keeps_everything_when_history_is_empty(spark):
+    latest = spark.createDataFrame([("r1", "x")], "run_id STRING, metric_name STRING")
+    history = spark.createDataFrame([], "run_id STRING, metric_name STRING")
+
+    assert new_runs(latest, history).count() == 1

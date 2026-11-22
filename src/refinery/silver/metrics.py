@@ -24,3 +24,8 @@ def summary_metrics(checked: DataFrame, checks: list[dict], engine: DQEngine, ta
         input_config=InputConfig(location=table),
         quarantine_config=OutputConfig(location=f"{table}_quarantine"),
     )
+
+
+def new_runs(latest: DataFrame, history: DataFrame) -> DataFrame:
+    """Metrics of runs that are not in the history yet, so a rerun of the task adds nothing."""
+    return latest.join(history.select("run_id").distinct(), "run_id", "left_anti")
