@@ -1,0 +1,38 @@
+name: assistant-start
+
+# Manual only: creates the vector search endpoint and index for the RAG assistant and syncs the index
+# with the article chunks. Takes about 25 minutes, so run it at least 40 minutes before a demo.
+# Vector search is billed by the hour until assistant-stop is run.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: assistant
+  cancel-in-progress: false
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    environment: prod
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_AUTH_TYPE: oauth-m2m
+    steps:
+      - uses: actions/checkout@v7
+
+      # The jobs install dist/*.whl; build it as deploy-prod does, so the bundle resolves the same files
+      - name: Build the wheel
+        uses: ./.github/actions/build-wheel
+
+      - uses: ./.github/actions/setup-databricks-cli
+        with:
+          version: 0.296.1
+
+      - name: Create and sync Vector Search
+        run: databricks bundle run -t prod rag_search_start
