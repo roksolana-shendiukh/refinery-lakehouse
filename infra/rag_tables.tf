@@ -288,3 +288,119 @@ resource "databricks_sql_table" "eia_article_chunks" {
     comment  = "When the chunk_articles task last changed this row (UTC)"
   }
 }
+
+
+resource "databricks_sql_table" "assistant_requests" {
+  catalog_name       = var.catalog
+  schema_name        = var.rag_schema
+  name               = "assistant_requests"
+  table_type         = "MANAGED"
+  data_source_format = "DELTA"
+  warehouse_id       = var.warehouse_id
+  comment            = "Request log of the RAG assistant: one row per question, with the searches, sources, tokens and latency. Written by the assistant app."
+
+  column {
+    name     = "request_id"
+    type     = "string"
+    nullable = false
+    comment  = "UUID of the request"
+  }
+
+  column {
+    name     = "asked_at"
+    type     = "timestamp"
+    nullable = false
+    comment  = "When the question was asked (UTC)"
+  }
+
+  column {
+    name     = "user_email"
+    type     = "string"
+    nullable = true
+    comment  = "Who asked, from the Databricks Apps user header; null outside the app"
+  }
+
+  column {
+    name     = "question"
+    type     = "string"
+    nullable = false
+    comment  = "The question as asked"
+  }
+
+  column {
+    name     = "answer"
+    type     = "string"
+    nullable = false
+    comment  = "The answer shown to the user (the refusal or error text if there was no answer)"
+  }
+
+  column {
+    name     = "model"
+    type     = "string"
+    nullable = false
+    comment  = "Serving endpoint of the chat model"
+  }
+
+  column {
+    name     = "tool_calls"
+    type     = "string"
+    nullable = false
+    comment  = "JSON array of the searches: tool name, arguments as sent by the model, ids of the chunks found"
+  }
+
+  column {
+    name     = "retrieved_chunk_ids"
+    type     = "array<string>"
+    nullable = false
+    comment  = "Every chunk the searches returned (rag.eia_article_chunks.chunk_id)"
+  }
+
+  column {
+    name     = "cited_urls"
+    type     = "array<string>"
+    nullable = false
+    comment  = "Pages the answer links to"
+  }
+
+  column {
+    name     = "iterations"
+    type     = "int"
+    nullable = false
+    comment  = "Model calls for this question"
+  }
+
+  column {
+    name     = "prompt_tokens"
+    type     = "int"
+    nullable = false
+    comment  = "Input tokens over all model calls"
+  }
+
+  column {
+    name     = "completion_tokens"
+    type     = "int"
+    nullable = false
+    comment  = "Output tokens over all model calls"
+  }
+
+  column {
+    name     = "latency_ms"
+    type     = "int"
+    nullable = false
+    comment  = "Time to answer, in milliseconds"
+  }
+
+  column {
+    name     = "stopped_at_limit"
+    type     = "boolean"
+    nullable = false
+    comment  = "The model still wanted to search after the iteration limit"
+  }
+
+  column {
+    name     = "error"
+    type     = "string"
+    nullable = true
+    comment  = "Error of the model or the search; null when the question was answered"
+  }
+}

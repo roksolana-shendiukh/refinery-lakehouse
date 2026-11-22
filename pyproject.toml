@@ -29,6 +29,7 @@ app = [
     "databricks-sql-connector>=4",
     "databricks-sdk",
     "pandas",
+    "openai>=3.57.0",
 ]
 
 [tool.uv]
@@ -43,7 +44,7 @@ packages = ["src/refinery"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "src/apps/live_map"]
+pythonpath = ["src", "src/apps/live_map", "src/apps/assistant"]
 
 [tool.ruff]
 line-length = 120
