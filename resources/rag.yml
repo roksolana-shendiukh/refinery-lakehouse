@@ -130,3 +130,35 @@ resources:
 
       configuration:
         refinery.landing_path: /Volumes/${var.catalog}/${resources.schemas.bronze.name}/${resources.volumes.landing.name}
+
+# The assistant app runs only in PROD: the bundle's app config cannot take
+# per-target values, so app.yaml holds the PROD names. In DEV the app is run locally.
+targets:
+  prod:
+    resources:
+      apps:
+        assistant:
+          name: refinery-assistant
+          description: Answers petroleum market questions from EIA articles and the Short-Term Energy Outlook
+          source_code_path: ../src/apps/assistant
+          resources:
+            - name: sql-warehouse
+              description: SQL warehouse that writes the request log
+              sql_warehouse:
+                id: ${var.warehouse_id}
+                permission: CAN_USE
+            - name: serving-endpoint
+              description: Model that answers the questions
+              serving_endpoint:
+                name: databricks-meta-llama-3-3-70b-instruct
+                permission: CAN_QUERY
+
+          permissions:
+            - level: CAN_MANAGE
+              user_name: ${var.operator_user}
+            - level: CAN_USE
+              group_name: refinery_market_analysts
+            - level: CAN_USE
+              group_name: refinery_region_R30
+            - level: CAN_USE
+              group_name: refinery_data_engineers
