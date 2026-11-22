@@ -20,7 +20,7 @@ producer = [
     "databricks-zerobus-ingest-sdk>=1.11,<2",
     "protobuf>=5",
     "grpcio-tools>=1.66",
-    "websockets>=13",
+    "websockets>=17.4",
 ]
 app = [
     "dash>=4.5,<5",
