@@ -202,8 +202,208 @@
           "position": {
             "x": 0,
             "y": 0,
+            "width": 3,
+            "height": 3
+          },
+          "widget": {
+            "name": "rejected-rows-last-run",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a1f00001",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "rejected_rows",
+                      "expression": "`rejected_rows`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "rejected_rows",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "🔴 Rejected rows (last run)"
+              }
+            }
+          }
+        },
+        {
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          },
+          "widget": {
+            "name": "warning-rows-last-run",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a1f00001",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "warning_rows",
+                      "expression": "`warning_rows`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "warning_rows",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "🟡 Warning rows (last run)"
+              }
+            }
+          }
+        },
+        {
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          },
+          "widget": {
+            "name": "revised-rows-last-load",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a1f00002",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "revised_rows",
+                      "expression": "`revised_rows`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "revised_rows",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "🟡 Revised rows (last EIA load)"
+              }
+            }
+          }
+        },
+        {
+          "position": {
+            "x": 9,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          },
+          "widget": {
+            "name": "reference-integrity-problems",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a1f00003",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "problems",
+                      "expression": "`problems`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "problems",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "🔴 Reference integrity problems"
+              }
+            }
+          }
+        },
+        {
+          "position": {
+            "x": 0,
+            "y": 3,
             "width": 4,
-            "height": 6
+            "height": 7
           },
           "widget": {
             "name": "error-types-last-run",
@@ -268,208 +468,8 @@
         {
           "position": {
             "x": 4,
-            "y": 0,
-            "width": 4,
-            "height": 3
-          },
-          "widget": {
-            "name": "rejected-rows-last-run",
-            "queries": [
-              {
-                "name": "main_query",
-                "query": {
-                  "datasetName": "a1f00001",
-                  "disaggregated": true,
-                  "fields": [
-                    {
-                      "name": "rejected_rows",
-                      "expression": "`rejected_rows`"
-                    }
-                  ]
-                }
-              }
-            ],
-            "spec": {
-              "version": 2,
-              "widgetType": "counter",
-              "data": {
-                "queryName": "main_query"
-              },
-              "encodings": {
-                "value": {
-                  "fieldName": "rejected_rows",
-                  "format": {
-                    "type": "number-plain",
-                    "abbreviation": "none",
-                    "decimalPlaces": {
-                      "type": "max",
-                      "places": 0
-                    }
-                  }
-                }
-              },
-              "frame": {
-                "showTitle": true,
-                "title": "🔴 Rejected rows (last run)"
-              }
-            }
-          }
-        },
-        {
-          "position": {
-            "x": 8,
-            "y": 0,
-            "width": 4,
-            "height": 3
-          },
-          "widget": {
-            "name": "warning-rows-last-run",
-            "queries": [
-              {
-                "name": "main_query",
-                "query": {
-                  "datasetName": "a1f00001",
-                  "disaggregated": true,
-                  "fields": [
-                    {
-                      "name": "warning_rows",
-                      "expression": "`warning_rows`"
-                    }
-                  ]
-                }
-              }
-            ],
-            "spec": {
-              "version": 2,
-              "widgetType": "counter",
-              "data": {
-                "queryName": "main_query"
-              },
-              "encodings": {
-                "value": {
-                  "fieldName": "warning_rows",
-                  "format": {
-                    "type": "number-plain",
-                    "abbreviation": "none",
-                    "decimalPlaces": {
-                      "type": "max",
-                      "places": 0
-                    }
-                  }
-                }
-              },
-              "frame": {
-                "showTitle": true,
-                "title": "🟡 Warning rows (last run)"
-              }
-            }
-          }
-        },
-        {
-          "position": {
-            "x": 4,
             "y": 3,
-            "width": 4,
-            "height": 3
-          },
-          "widget": {
-            "name": "revised-rows-last-load",
-            "queries": [
-              {
-                "name": "main_query",
-                "query": {
-                  "datasetName": "a1f00002",
-                  "disaggregated": true,
-                  "fields": [
-                    {
-                      "name": "revised_rows",
-                      "expression": "`revised_rows`"
-                    }
-                  ]
-                }
-              }
-            ],
-            "spec": {
-              "version": 2,
-              "widgetType": "counter",
-              "data": {
-                "queryName": "main_query"
-              },
-              "encodings": {
-                "value": {
-                  "fieldName": "revised_rows",
-                  "format": {
-                    "type": "number-plain",
-                    "abbreviation": "none",
-                    "decimalPlaces": {
-                      "type": "max",
-                      "places": 0
-                    }
-                  }
-                }
-              },
-              "frame": {
-                "showTitle": true,
-                "title": "🟡 Revised rows (last EIA load)"
-              }
-            }
-          }
-        },
-        {
-          "position": {
-            "x": 8,
-            "y": 3,
-            "width": 4,
-            "height": 3
-          },
-          "widget": {
-            "name": "reference-integrity-problems",
-            "queries": [
-              {
-                "name": "main_query",
-                "query": {
-                  "datasetName": "a1f00003",
-                  "disaggregated": true,
-                  "fields": [
-                    {
-                      "name": "problems",
-                      "expression": "`problems`"
-                    }
-                  ]
-                }
-              }
-            ],
-            "spec": {
-              "version": 2,
-              "widgetType": "counter",
-              "data": {
-                "queryName": "main_query"
-              },
-              "encodings": {
-                "value": {
-                  "fieldName": "problems",
-                  "format": {
-                    "type": "number-plain",
-                    "abbreviation": "none",
-                    "decimalPlaces": {
-                      "type": "max",
-                      "places": 0
-                    }
-                  }
-                }
-              },
-              "frame": {
-                "showTitle": true,
-                "title": "🔴 Reference integrity problems"
-              }
-            }
-          }
-        },
-        {
-          "position": {
-            "x": 0,
-            "y": 6,
-            "width": 6,
+            "width": 8,
             "height": 7
           },
           "widget": {
@@ -546,8 +546,8 @@
         },
         {
           "position": {
-            "x": 6,
-            "y": 6,
+            "x": 0,
+            "y": 10,
             "width": 6,
             "height": 7
           },
@@ -621,8 +621,8 @@
         },
         {
           "position": {
-            "x": 0,
-            "y": 13,
+            "x": 6,
+            "y": 10,
             "width": 6,
             "height": 7
           },
@@ -696,8 +696,8 @@
         },
         {
           "position": {
-            "x": 6,
-            "y": 13,
+            "x": 0,
+            "y": 17,
             "width": 6,
             "height": 7
           },
@@ -771,10 +771,85 @@
         },
         {
           "position": {
-            "x": 0,
-            "y": 20,
+            "x": 6,
+            "y": 17,
             "width": 6,
             "height": 7
+          },
+          "widget": {
+            "name": "current-quarantine",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a1f00009",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "kind",
+                      "expression": "`kind`"
+                    },
+                    {
+                      "name": "row_count",
+                      "expression": "`row_count`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "table_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Table"
+                },
+                "y": {
+                  "fieldName": "row_count",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Rows"
+                },
+                "color": {
+                  "fieldName": "kind",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Rejected",
+                        "color": "#D64545"
+                      },
+                      {
+                        "value": "Warning",
+                        "color": "#D9962B"
+                      }
+                    ]
+                  },
+                  "displayName": "Type"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Rows in quarantine now"
+              }
+            }
+          }
+        },
+        {
+          "position": {
+            "x": 0,
+            "y": 24,
+            "width": 12,
+            "height": 5
           },
           "widget": {
             "name": "top-failing-checks",
@@ -874,81 +949,6 @@
               "frame": {
                 "showTitle": true,
                 "title": "Checks that fire in the last run"
-              }
-            }
-          }
-        },
-        {
-          "position": {
-            "x": 6,
-            "y": 20,
-            "width": 6,
-            "height": 7
-          },
-          "widget": {
-            "name": "current-quarantine",
-            "queries": [
-              {
-                "name": "main_query",
-                "query": {
-                  "datasetName": "a1f00009",
-                  "disaggregated": true,
-                  "fields": [
-                    {
-                      "name": "table_name",
-                      "expression": "`table_name`"
-                    },
-                    {
-                      "name": "kind",
-                      "expression": "`kind`"
-                    },
-                    {
-                      "name": "row_count",
-                      "expression": "`row_count`"
-                    }
-                  ]
-                }
-              }
-            ],
-            "spec": {
-              "version": 3,
-              "widgetType": "bar",
-              "encodings": {
-                "x": {
-                  "fieldName": "table_name",
-                  "scale": {
-                    "type": "categorical"
-                  },
-                  "displayName": "Table"
-                },
-                "y": {
-                  "fieldName": "row_count",
-                  "scale": {
-                    "type": "quantitative"
-                  },
-                  "displayName": "Rows"
-                },
-                "color": {
-                  "fieldName": "kind",
-                  "scale": {
-                    "type": "categorical",
-                    "mappings": [
-                      {
-                        "value": "Rejected",
-                        "color": "#D64545"
-                      },
-                      {
-                        "value": "Warning",
-                        "color": "#D9962B"
-                      }
-                    ]
-                  },
-                  "displayName": "Type"
-                }
-              },
-              "frame": {
-                "showTitle": true,
-                "title": "Rows in quarantine now"
               }
             }
           }
