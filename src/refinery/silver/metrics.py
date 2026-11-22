@@ -29,3 +29,12 @@ def summary_metrics(checked: DataFrame, checks: list[dict], engine: DQEngine, ta
 def new_runs(latest: DataFrame, history: DataFrame) -> DataFrame:
     """Metrics of runs that are not in the history yet, so a rerun of the task adds nothing."""
     return latest.join(history.select("run_id").distinct(), "run_id", "left_anti")
+
+
+def require_table(spark: SparkSession, table_name: str) -> None:
+    """Fail clearly when the history table is missing: Terraform creates it, this job only appends."""
+    if not spark.catalog.tableExists(table_name):
+        raise RuntimeError(
+            f"{table_name} does not exist; it is created by Terraform "
+            "(in DEV, create it once by hand with the columns of dq_summary_metrics_latest)"
+        )

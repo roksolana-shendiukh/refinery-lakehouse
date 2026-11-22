@@ -4,7 +4,7 @@ import pytest
 from databricks.labs.dqx.engine import DQEngine
 from databricks.labs.dqx.metrics_observer import DQMetricsObserver
 
-from refinery.silver.metrics import new_runs, summary_metrics
+from refinery.silver.metrics import new_runs, require_table, summary_metrics
 from refinery.silver.quality import check, not_null
 
 CHECKS = [not_null("t", "a", "error"), not_null("t", "b", "warn")]
@@ -55,3 +55,18 @@ def test_new_runs_keeps_everything_when_history_is_empty(spark):
     history = spark.createDataFrame([], "run_id STRING, metric_name STRING")
 
     assert new_runs(latest, history).count() == 1
+
+
+def test_require_table_fails_when_the_table_is_missing():
+    session = MagicMock()
+    session.catalog.tableExists.return_value = False
+
+    with pytest.raises(RuntimeError, match="created by Terraform"):
+        require_table(session, "catalog.schema.history")
+
+
+def test_require_table_passes_when_the_table_exists():
+    session = MagicMock()
+    session.catalog.tableExists.return_value = True
+
+    require_table(session, "catalog.schema.history")
