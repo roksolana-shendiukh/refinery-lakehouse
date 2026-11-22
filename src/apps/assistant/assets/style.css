@@ -61,6 +61,7 @@ a { color: var(--accent); }
 /* Sources and context */
 .sources h2, .context summary { font: 600 14px Inter, sans-serif; color: var(--soft); }
 .sources h2 { margin: 20px 0 8px; }
+.sources summary { cursor: pointer; margin: 10px 0 2px; font: 500 13px Inter, sans-serif; color: var(--muted); }
 .source { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .source-kind {
   flex: 0 0 auto; font-size: 11px; padding: 2px 8px; border-radius: 999px;

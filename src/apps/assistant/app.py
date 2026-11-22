@@ -8,6 +8,7 @@ principal signs in by itself.
 import logging
 
 from assistant.agent import build_agent
+from assistant.callbacks import index_available, register
 from assistant.layout import not_configured, page
 from assistant.request_log import RequestLog
 from assistant.settings import AssistantSettings, SettingsError
@@ -34,6 +35,7 @@ else:
     agent = build_agent(settings, workspace_client)
     request_log = RequestLog(workspace_client, settings.warehouse_id, settings.log_table)
     app.layout = page()
+    register(app, agent, request_log, lambda: index_available(workspace_client, settings.index_name))
 
 
 if __name__ == "__main__":

@@ -94,9 +94,9 @@ class RequestLog:
         self.table_name = table_name
         self.now = now or (lambda: datetime.datetime.now(datetime.UTC))
 
-    def write(self, answer, user_email=None):
+    def write(self, answer, user_email=None, request_id=None):
         """Write one answer to the log. Returns the request id, or None if the write failed."""
-        record = log_record(answer, self.now(), user_email)
+        record = log_record(answer, self.now(), user_email, request_id)
         try:
             response = self.workspace_client.statement_execution.execute_statement(
                 statement=insert_statement(),
