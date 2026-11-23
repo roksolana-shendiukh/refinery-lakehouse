@@ -245,3 +245,21 @@ def build_scorers(with_search, judge_model=None):
     if with_search:
         scorers.append(RetrievalGroundedness(**judge))
     return scorers
+
+
+class AnswerFailed(RuntimeError):
+    """The assistant could not answer (model or search error): the row is an error, not a wrong answer."""
+
+
+def answer_fn(assistant):
+    """predict_fn for mlflow.genai.evaluate: the question in, the answer text out (what the scorers read).
+    A failed answer raises, so MLflow records the row as an error instead of scoring the error message.
+    """
+
+    def answer(question):
+        result = assistant.ask(question)
+        if result.error:
+            raise AnswerFailed(result.error)
+        return result.answer
+
+    return answer

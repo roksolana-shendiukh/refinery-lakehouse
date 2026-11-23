@@ -114,6 +114,39 @@ resources:
             dependencies:
               - ../dist/*.whl
 
+    rag_eval:
+      name: refinery-rag-eval
+
+      tasks:
+        - task_key: evaluate
+          environment_key: eval
+          timeout_seconds: 3600
+          spark_python_task:
+            python_file: ../src/apps/assistant/evaluate.py
+            parameters:
+              - --app-dir
+              - ${workspace.file_path}/src/apps/assistant
+              - --questions
+              - ${workspace.file_path}/data/rag/eval_questions.json
+              - --index-name
+              - ${var.catalog}.${resources.schemas.rag.name}.eia_article_chunks_index
+              # The model of the assistant app (apps.assistant serving-endpoint)
+              - --llm-endpoint
+              - databricks-meta-llama-3-3-70b-instruct
+              - --experiment
+              - ${resources.experiments.rag_eval_experiment.name}
+              - --judge-model
+              - ${var.eval_judge_model}
+
+      # The assistant package comes from the source folder, not the wheel; MLflow is part of the environment
+      environments:
+        - environment_key: eval
+          spec:
+            environment_version: "5"
+            dependencies:
+              - openai>=3.57
+              - databricks-sdk>=0.166
+
   pipelines:
     rag_bronze:
       name: refinery-rag-bronze
@@ -132,6 +165,11 @@ resources:
 
       configuration:
         refinery.landing_path: /Volumes/${var.catalog}/${resources.schemas.bronze.name}/${resources.volumes.landing.name}
+
+  experiments:
+    rag_eval_experiment:
+      # One run per mode (with and without search) for every evaluation
+      name: ${workspace.root_path}/refinery-rag-eval
 
 # The assistant app runs only in PROD: the bundle's app config cannot take
 # per-target values, so app.yaml holds the PROD names. In DEV the app is run locally.
@@ -163,4 +201,14 @@ targets:
             - level: CAN_USE
               group_name: refinery_region_R30
             - level: CAN_USE
+              group_name: refinery_data_engineers
+      # Results are readable by the analysts and engineers who use the assistant
+      experiments:
+        rag_eval_experiment:
+          permissions:
+            - level: CAN_MANAGE
+              user_name: ${var.operator_user}
+            - level: CAN_READ
+              group_name: refinery_market_analysts
+            - level: CAN_READ
               group_name: refinery_data_engineers

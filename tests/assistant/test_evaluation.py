@@ -8,10 +8,12 @@ import pytest
 from assistant.agent import ERROR_ANSWER
 from assistant.evaluation import (
     RETRIEVER_SPAN,
+    AnswerFailed,
     EvalQuestion,
     EvalQuestionsError,
     NoSearchAssistant,
     TracedSearch,
+    answer_fn,
     cites_expected_source,
     eval_records,
     load_questions,
@@ -284,3 +286,16 @@ def test_answer_must_cite_an_expected_page():
 def test_refusal_cites_nothing():
     assert cites_expected_source(REFUSAL, REFUSED)
     assert not cites_expected_source(f"{REFUSAL} See [STEO]({STEO_URL}).", REFUSED)
+
+
+def test_evaluation_gets_the_answer_text_of_the_assistant():
+    assistant = baseline(FakeLLM(content="Brent averaged about $82/b in 2023."))
+
+    assert answer_fn(assistant)("Brent?") == "Brent averaged about $82/b in 2023."
+
+
+def test_failed_answer_is_an_error_for_mlflow_not_a_wrong_answer():
+    assistant = baseline(FakeLLM(error=TimeoutError("model timed out")))
+
+    with pytest.raises(AnswerFailed, match="model timed out"):
+        answer_fn(assistant)("Brent?")
