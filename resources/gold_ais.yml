@@ -20,3 +20,26 @@ targets:
 
           configuration:
             refinery.silver_schema: ${var.catalog}.${resources.schemas.silver.name}
+
+      jobs:
+        ais_refresh:
+          name: refinery-ais-refresh
+          tasks:
+            - task_key: refresh_ais_silver
+              pipeline_task:
+                pipeline_id: ${resources.pipelines.silver_ais.id}
+            - task_key: refresh_ais_gold
+              depends_on:
+                - task_key: refresh_ais_silver
+              pipeline_task:
+                pipeline_id: ${resources.pipelines.gold_ais.id}
+            - task_key: apply_ais_gold_tags
+              depends_on:
+                - task_key: refresh_ais_gold
+              sql_task:
+                warehouse_id: ${var.warehouse_id}
+                file:
+                  path: ../governance/gold_ais_abac.sql
+                parameters:
+                  catalog: ${var.catalog}
+                  gold_schema: ${resources.schemas.gold.name}
