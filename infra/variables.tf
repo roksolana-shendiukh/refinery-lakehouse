@@ -39,3 +39,9 @@ variable "prod_ci_principal" {
   type        = string
   default     = ""
 }
+
+variable "assistant_principal" {
+  description = "Application ID of the assistant app's service principal: it writes the request log; empty = no grants"
+  type        = string
+  default     = ""
+}

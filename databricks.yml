@@ -34,6 +34,9 @@ variables:
   live_map_principal:
     description: Application ID of the live map app's service principal, which reads the live tables
     default: ""
+  assistant_principal:
+    description: Application ID of the assistant app's service principal, which queries the index and writes the request log
+    default: ""
 
 targets:
   dev:
@@ -41,7 +44,6 @@ targets:
     default: true
     workspace:
       host: https://dbc-72291aa5-f437.cloud.databricks.com
-      
     variables:
       catalog: refinery_dev
       secret_scope: refinery-kv
@@ -63,6 +65,7 @@ targets:
       infra_service_principal: 1ba942f1-5296-4c88-a49e-7fdcb5a4ba83
       ais_producer_principal: a71604c7-86b9-4b15-92a6-e39ad5ca6ad4
       live_map_principal: b4a74449-a72e-435e-bd03-c5468fe61f3a
+      assistant_principal: 3b5ff896-8610-4062-b37d-c60179f82362
       warehouse_id:
         lookup:
           warehouse: Serverless Starter Warehouse
@@ -110,3 +113,7 @@ targets:
           grants:
             - principal: ${var.infra_service_principal}
               privileges: [USE_SCHEMA, CREATE_TABLE]
+              # The assistant app works as its own service principal: SELECT on the index comes from
+              # refinery-rag-search-start (the index is recreated on every start), MODIFY on the request log from Terraform.
+            - principal: ${var.assistant_principal}
+              privileges: [ USE_SCHEMA ]

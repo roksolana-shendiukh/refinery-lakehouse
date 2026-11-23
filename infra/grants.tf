@@ -72,3 +72,11 @@ resource "databricks_grant" "prod_ci_dq_summary_metrics" {
   principal  = var.prod_ci_principal
   privileges = ["SELECT", "MODIFY"]
 }
+
+# The assistant app inserts one row per question into the request log, as its own service principal.
+resource "databricks_grant" "assistant_requests" {
+  count      = var.assistant_principal != "" ? 1 : 0
+  table      = databricks_sql_table.assistant_requests.id
+  principal  = var.assistant_principal
+  privileges = ["MODIFY"]
+}

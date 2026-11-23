@@ -7,3 +7,4 @@ warehouse_id   = "abb8ea0ecf2e1a89"
 
 ais_producer_principal = "a71604c7-86b9-4b15-92a6-e39ad5ca6ad4"
 prod_ci_principal      = "1f13aa19-fd45-453f-953b-bf15bf389d48"
+assistant_principal    = "3b5ff896-8610-4062-b37d-c60179f82362"
