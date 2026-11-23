@@ -33,15 +33,16 @@ jobs:
         with:
           version: 0.296.1
 
-      - name: Delete vector search
-        run: databricks bundle run -t prod rag_search_stop
-
+      # First the app, so it is no longer running when the index disappears
       - name: Stop the assistant app
         run: |
           app_name=$(databricks bundle summary -t prod -o json | jq -r '.resources.apps.assistant.name')
           echo "Stopping app: $app_name"
+          # Inside the bundle folder the CLI picks the workspace from a bundle target:
+          # without -t prod it would use the default target (dev).
           databricks apps stop "$app_name" -t prod
-      
-      - name: Delete the Vector Search
+
+      # Even if stopping the app failed: the endpoint is the larger cost
+      - name: Delete vector search
         if: ${{ !cancelled() }}
         run: databricks bundle run -t prod rag_search_stop

@@ -82,8 +82,6 @@ resources:
               - ${var.catalog}.${resources.schemas.rag.name}.eia_article_chunks
               - --index-name
               - ${var.catalog}.${resources.schemas.rag.name}.eia_article_chunks_index
-              - --index-name
-              - ${var.catalog}.${resources.schemas.rag.name}.eia_article_chunks_index
               - --reader-app
               - refinery-assistant
 
