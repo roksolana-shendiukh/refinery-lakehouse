@@ -1,0 +1,39 @@
+name: assistant-eval
+
+# Manual only: evaluates the assistant on the control questions (data/rag/eval_questions.json) with and
+# without the article search and logs both runs to the refinery-rag-eval MLflow experiment.
+# Needs the vector search index: run it between assistant-start and assistant-stop.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Same group as assistant-start and assistant-stop: stop never deletes the index during an evaluation
+concurrency:
+  group: assistant
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: prod
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_AUTH_TYPE: oauth-m2m
+    steps:
+      - uses: actions/checkout@v7
+
+      # The other jobs of the bundle install dist/*.whl; build it as deploy-prod does, so the bundle resolves
+      - name: Build the wheel
+        uses: ./.github/actions/build-wheel
+
+      - uses: ./.github/actions/setup-databricks-cli
+        with:
+          version: 0.296.1
+
+      - name: Evaluate the assistant
+        run: databricks bundle run -t prod rag_eval
