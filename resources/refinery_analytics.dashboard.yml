@@ -7,3 +7,8 @@ resources:
       dataset_catalog: ${var.catalog}
       dataset_schema: ${resources.schemas.gold.name}
       embed_credentials: false
+      permissions:
+        - level: CAN_RUN
+          group_name: refinery_market_analysts
+        - level: CAN_RUN
+          group_name: refinery_region_R30
