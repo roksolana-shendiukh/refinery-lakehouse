@@ -30,6 +30,7 @@ def parse_args():
     parser.add_argument("--index-name", required=True)
     parser.add_argument("--endpoint-name", default=ENDPOINT_NAME)
     parser.add_argument("--embedding-model", default=EMBEDDING_MODEL)
+    parser.add_argument("--reader-app", help="App whose service principal gets SELECT on the index on start")
     return parser.parse_args()
 
 
@@ -53,8 +54,10 @@ def main():
     else:
         # The sync is done when the index holds as many rows as the chunks table
         chunk_rows = SparkSession.builder.getOrCreate().table(args.chunks_table).count()
-        run = start_search if args.action == "start" else refresh_search
-        result = run(client, config, chunk_rows)
+        if args.action == "start":
+            result = start_search(client, config, chunk_rows, reader_app=args.reader_app)
+        else:
+            result = refresh_search(client, config, chunk_rows)
 
     logger.info("Vector search %s: %s", args.action, result)
 

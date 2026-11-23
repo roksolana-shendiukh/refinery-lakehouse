@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 from databricks.sdk.errors import NotFound
+from databricks.sdk.service.catalog import Privilege
 from databricks.sdk.service.vectorsearch import (
     DeltaSyncVectorIndexSpecResponse,
     EndpointInfo,
@@ -23,6 +24,7 @@ from refinery.rag.search_index import (
     delete_index,
     ensure_endpoint,
     ensure_index,
+    grant_index_to_app,
     refresh_search,
     start_search,
     stop_search,
@@ -350,3 +352,37 @@ def test_refresh_syncs_an_existing_index():
     client = FakeClient(index=existing_index(), index_statuses=[("ONLINE_NO_PENDING_UPDATE", 550)])
 
     assert refresh_search(client, CONFIG, expected_rows=550, **no_wait()) == {"synced": True, "indexed_rows": 550}
+
+
+def app_client(app=None):
+    updates = []
+
+    def get(name):
+        if app is None:
+            raise NotFound(f"App {name} not found")
+        return app
+
+    client = SimpleNamespace(
+        apps=SimpleNamespace(get=get),
+        grants=SimpleNamespace(update=lambda **change: updates.append(change)),
+    )
+    return client, updates
+
+
+def test_app_service_principal_gets_select_on_the_index():
+    client, updates = app_client(SimpleNamespace(service_principal_client_id="app-sp-id"))
+
+    principal = grant_index_to_app(client, CONFIG.index_name, "refinery-assistant")
+
+    assert principal == "app-sp-id"
+    ((update,),) = [updates]
+    assert (update["securable_type"], update["full_name"]) == ("table", CONFIG.index_name)
+    ((change,),) = [update["changes"]]
+    assert (change.principal, change.add) == ("app-sp-id", [Privilege.SELECT])
+
+
+def test_without_the_app_no_grant_is_given():
+    client, updates = app_client()
+
+    assert grant_index_to_app(client, CONFIG.index_name, "refinery-assistant") is None
+    assert updates == []
