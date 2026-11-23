@@ -372,6 +372,21 @@
         "WHERE r.area_level = 'region'\n",
         "  AND r.date = (SELECT MAX(date) FROM retail);"
       ]
+    },
+    {
+      "displayName": "q7_arrivals",
+      "name": "4d1b41d4",
+      "queryLines": [
+        "SELECT\n",
+        "  date_trunc('WEEK', d.date) AS week,\n",
+        "  a.region_name             AS region,\n",
+        "  COUNT(*)                  AS tanker_arrivals\n",
+        "FROM fact_accumulating_port_call f\n",
+        "JOIN dim_date d ON f.entered_date_sk = d.date_sk\n",
+        "JOIN dim_area a ON f.area_sk = a.area_sk\n",
+        "WHERE a.area_level IN ('region', 'subregion')\n",
+        "GROUP BY date_trunc('WEEK', d.date), a.region_name;"
+      ]
     }
   ],
   "pages": [
@@ -1596,6 +1611,74 @@
               "widgetType": "bar"
             }
           }
+        },
+        {
+          "position": {
+            "height": 6,
+            "width": 12,
+            "x": 0,
+            "y": 14
+          },
+          "widget": {
+            "name": "how-many-tankers-arrived-regions-ports-each-week",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "4d1b41d4",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "DATE_TRUNC(\"WEEK\", `week`)",
+                      "name": "weekly(week)"
+                    },
+                    {
+                      "expression": "SUM(`tanker_arrivals`)",
+                      "name": "sum(tanker_arrivals)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "label": {
+                  "show": true
+                },
+                "x": {
+                  "displayName": " ",
+                  "fieldName": "weekly(week)",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "displayName": " ",
+                  "fieldName": "sum(tanker_arrivals)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "description": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 14px;\">Tanker calls at terminal zones of the selected region, by week of arrival</span>"
+                },
+                "showDescription": true,
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">How many tankers arrived at the region's ports each week?</span>"
+                }
+              },
+              "version": 3,
+              "widgetType": "bar"
+            }
+          }
         }
       ],
       "layoutVersion": "GRID_V1",
@@ -1805,6 +1888,23 @@
                     }
                   ]
                 }
+              },
+              {
+                "name": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e768679d19df9e8755d8f412709e_region",
+                "query": {
+                  "datasetName": "4d1b41d4",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "`region`",
+                      "name": "region"
+                    },
+                    {
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)",
+                      "name": "region_associativity"
+                    }
+                  ]
+                }
               }
             ],
             "spec": {
@@ -1813,6 +1913,10 @@
                   {
                     "fieldName": "region",
                     "queryName": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e6633de51f7fb622faa58fda70a8_region"
+                  },
+                  {
+                    "fieldName": "region",
+                    "queryName": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e768679d19df9e8755d8f412709e_region"
                   }
                 ]
               },
