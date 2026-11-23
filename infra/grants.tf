@@ -78,5 +78,5 @@ resource "databricks_grant" "assistant_requests" {
   count      = var.assistant_principal != "" ? 1 : 0
   table      = databricks_sql_table.assistant_requests.id
   principal  = var.assistant_principal
-  privileges = ["MODIFY"]
+  privileges = ["SELECT", "MODIFY"]
 }
