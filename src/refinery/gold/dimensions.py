@@ -3,7 +3,7 @@
 from datetime import date
 from functools import reduce
 
-from pyspark.sql import Column, DataFrame, SparkSession
+from pyspark.sql import Column, DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
 
 from refinery.gold.keys import UNKNOWN, hashed_sk, with_special_members
@@ -148,3 +148,101 @@ def dim_area(ref_area: DataFrame) -> DataFrame:
         "is_coastal",
     )
     return with_special_members(dim, "area_sk")
+
+
+def _imo_versions(vessel_map: DataFrame) -> DataFrame:
+    """One version per IMO-MMSI pair, as silver mapped them; seen in positions before its static data = inferred_at."""
+    return vessel_map.select(
+        "imo",
+        "mmsi",
+        "effective_from",
+        "effective_to",
+        F.lit(False).alias("is_inferred"),
+        F.when(F.col("effective_from") < F.col("first_static_ts"), F.col("effective_from")).alias("inferred_at"),
+    )
+
+
+def _mmsi_only_versions(vessel_map: DataFrame, static: DataFrame, positions: DataFrame) -> DataFrame:
+    """One version per MMSI that silver could not map to an IMO; inferred while it has no static data at all."""
+    seen = positions.groupBy("mmsi").agg(F.min("event_ts").alias("first_seen"))
+    described = static.groupBy("mmsi").agg(F.min("__START_AT").alias("first_static"))
+    mapped = vessel_map.select("mmsi").distinct()
+    first_seen, first_static = F.col("first_seen"), F.col("first_static")
+    return (
+        seen.join(described, "mmsi", "full")
+        .join(F.broadcast(mapped), "mmsi", "left_anti")
+        .select(
+            F.lit(None).cast("int").alias("imo"),
+            "mmsi",
+            F.least(first_static, first_seen).alias("effective_from"),
+            F.lit(None).cast("timestamp").alias("effective_to"),
+            first_static.isNull().alias("is_inferred"),
+            F.when(first_static.isNull() | (first_seen < first_static), first_seen).alias("inferred_at"),
+        )
+    )
+
+
+TYPE1_ATTRIBUTES = ("vessel_name", "ship_type", "length_m")
+
+
+def _latest_attributes(static: DataFrame, key: str) -> DataFrame:
+    """The latest non-empty name, type and length per key (imo or mmsi); Type 1: the same on every version."""
+    started = F.col("__START_AT")
+    return (
+        static.where(F.col(key).isNotNull())
+        .groupBy(key)
+        .agg(*[F.max_by(c, F.when(F.col(c).isNotNull(), started)).alias(c) for c in TYPE1_ATTRIBUTES])
+    )
+
+
+def size_band(length_m: Column) -> Column:
+    """The size band of a vessel by its length in metres, "Unknown" when the length is not known."""
+    return (
+        F.when(length_m < 150, "<150 m")
+        .when(length_m < 200, "150–200 m")
+        .when(length_m < 250, "200–250 m")
+        .when(length_m < 300, "250–300 m")
+        .when(length_m >= 300, ">300 m")
+        .otherwise("Unknown")
+    )
+
+
+TANKER_SHIP_TYPES = (80, 89)
+
+
+def dim_vessel(vessel_map: DataFrame, static: DataFrame, positions: DataFrame, ref_mid: DataFrame) -> DataFrame:
+    """One version of a tanker (SCD2 on mmsi and flag, Type 1 name, type and length), plus the special members.
+
+    Keeps tankers (AIS ship type 80-89) and inferred vessels, whose type is not known yet.
+    """
+    imo_vessels = _imo_versions(vessel_map).join(_latest_attributes(static, "imo"), "imo", "left")
+    mmsi_vessels = _mmsi_only_versions(vessel_map, static, positions).join(
+        _latest_attributes(static, "mmsi"), "mmsi", "left"
+    )
+    mid = ref_mid.select("mid", F.col("country_name").alias("flag_country"))
+    versions = imo_vessels.unionByName(mmsi_vessels).join(
+        F.broadcast(mid), F.substring(F.col("mmsi").cast("string"), 1, 3) == F.col("mid"), "left"
+    )
+
+    next_user_of_mmsi = F.lead("effective_from").over(Window.partitionBy("mmsi").orderBy("effective_from"))
+    latest_of_vessel = F.max("effective_from").over(Window.partitionBy("imo"))
+    low, high = TANKER_SHIP_TYPES
+
+    dim = versions.select(
+        F.xxhash64("mmsi", "effective_from").alias("vessel_sk"),
+        F.col("imo").alias("vessel_bk"),
+        "mmsi",
+        F.coalesce("flag_country", F.lit("Unknown")).alias("flag_country"),
+        F.coalesce("vessel_name", F.lit("Unknown")).alias("vessel_name"),
+        "ship_type",
+        "length_m",
+        size_band(F.col("length_m")).alias("size_band"),
+        "effective_from",
+        F.least("effective_to", next_user_of_mmsi).alias("effective_to"),
+        F.when(F.col("imo").isNull(), F.lit(True))
+        .otherwise(F.col("effective_from") == latest_of_vessel)
+        .alias("is_current"),
+        "is_inferred",
+        "inferred_at",
+    ).where(F.col("ship_type").between(low, high) | F.col("is_inferred"))
+    return with_special_members(dim, "vessel_sk")

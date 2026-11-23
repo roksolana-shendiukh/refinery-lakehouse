@@ -26,6 +26,13 @@ DIM_PORT_DDL = (
     "port_sk BIGINT NOT NULL, port_bk STRING, port_name STRING, terminal_type STRING, area_bk STRING, boundary STRING"
 )
 
+DIM_VESSEL_DDL = (
+    "vessel_sk BIGINT NOT NULL, vessel_bk INT, mmsi INT, flag_country STRING, vessel_name STRING, "
+    "ship_type SMALLINT, length_m SMALLINT, size_band STRING, effective_from TIMESTAMP, effective_to TIMESTAMP, "
+    "is_current BOOLEAN, is_inferred BOOLEAN, inferred_at TIMESTAMP"
+)
+
+
 FACT_SUPPLY_DDL = (
     "date_sk INT NOT NULL, area_sk BIGINT NOT NULL, product_sk BIGINT NOT NULL, status_sk BIGINT NOT NULL, "
     "rate_kbd DECIMAL(10,1)"
