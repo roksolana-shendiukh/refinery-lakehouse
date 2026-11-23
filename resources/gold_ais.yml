@@ -1,0 +1,45 @@
+# AIS gold tables (dim_vessel, fact_accumulating_port_call). PROD only: the silver AIS tables exist only there.
+targets:
+  prod:
+    resources:
+      pipelines:
+        gold_ais:
+          name: refinery-ais-gold
+          catalog: ${var.catalog}
+          schema: ${resources.schemas.gold.name}
+          serverless: true
+          root_path: ../src/refinery_gold
+
+          libraries:
+            - file:
+                path: ../src/refinery_gold/ais/ais.py
+
+          environment:
+            dependencies:
+              - ../dist/*.whl
+
+          configuration:
+            refinery.silver_schema: ${var.catalog}.${resources.schemas.silver.name}
+
+      jobs:
+        ais_refresh:
+          name: refinery-ais-refresh
+          tasks:
+            - task_key: refresh_ais_silver
+              pipeline_task:
+                pipeline_id: ${resources.pipelines.silver_ais.id}
+            - task_key: refresh_ais_gold
+              depends_on:
+                - task_key: refresh_ais_silver
+              pipeline_task:
+                pipeline_id: ${resources.pipelines.gold_ais.id}
+            - task_key: apply_ais_gold_tags
+              depends_on:
+                - task_key: refresh_ais_gold
+              sql_task:
+                warehouse_id: ${var.warehouse_id}
+                file:
+                  path: ../governance/gold_ais_abac.sql
+                parameters:
+                  catalog: ${var.catalog}
+                  gold_schema: ${resources.schemas.gold.name}
