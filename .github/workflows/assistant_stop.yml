@@ -1,6 +1,7 @@
 name: assistant-stop
 
-# Manual only: deletes the vector search index and endpoint of the RAG assistant.
+# Manual only: stops the assistant app, then deletes the vector search index and endpoint,
+# so the assistant costs nothing until the next assistant-start.
 on:
   workflow_dispatch:
 
@@ -32,5 +33,16 @@ jobs:
         with:
           version: 0.296.1
 
+      # First the app, so it is no longer running when the index disappears
+      - name: Stop the assistant app
+        run: |
+          app_name=$(databricks bundle summary -t prod -o json | jq -r '.resources.apps.assistant.name')
+          echo "Stopping app: $app_name"
+          # Inside the bundle folder the CLI picks the workspace from a bundle target:
+          # without -t prod it would use the default target (dev).
+          databricks apps stop "$app_name" -t prod
+
+      # Even if stopping the app failed: the endpoint is the larger cost
       - name: Delete vector search
+        if: ${{ !cancelled() }}
         run: databricks bundle run -t prod rag_search_stop

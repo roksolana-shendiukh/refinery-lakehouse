@@ -1,0 +1,16 @@
+command: ["gunicorn", "app:server", "--config", "gunicorn.conf.py"]
+
+env:
+  - name: ASSISTANT_LLM_ENDPOINT
+    valueFrom: serving-endpoint
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+  - name: ASSISTANT_INDEX_NAME
+    value: dbr_dev_ua5816bd.refinery_rag.eia_article_chunks_index
+  - name: ASSISTANT_LOG_TABLE
+    value: dbr_dev_ua5816bd.refinery_rag.assistant_requests
+  - name: ASSISTANT_SEARCH_RESULTS
+    value: "5"
+  - name: ASSISTANT_MAX_ITERATIONS
+    value: "3"
+  

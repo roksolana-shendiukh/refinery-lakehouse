@@ -1,8 +1,9 @@
 name: assistant-start
 
-# Manual only: creates the vector search endpoint and index for the RAG assistant and syncs the index
-# with the article chunks. Takes about 25 minutes, so run it at least 40 minutes before a demo.
-# Vector search is billed by the hour until assistant-stop is run.
+# Manual only: creates the vector search endpoint and index for the RAG assistant, syncs the index with
+# the article chunks, then deploys the latest assistant app code from main and starts the app.
+# Takes about 30 minutes.
+# Vector search and the app are billed by the hour until assistant-stop is run.
 on:
   workflow_dispatch:
 
@@ -16,7 +17,7 @@ concurrency:
 jobs:
   start:
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 110
     environment: prod
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
@@ -36,3 +37,6 @@ jobs:
 
       - name: Create and sync Vector Search
         run: databricks bundle run -t prod rag_search_start
+
+      - name: Deploy the app code and start the assistant
+        run: databricks bundle run -t prod assistant
