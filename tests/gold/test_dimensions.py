@@ -1,10 +1,11 @@
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 from gold_testing import same_columns
 from pyspark.sql import functions as F
 
 from refinery.gold.dimensions import (
+    MINUTES_PER_DAY,
     PRICE_TYPES,
     VALUE_STATUSES,
     date_sk,
@@ -12,19 +13,24 @@ from refinery.gold.dimensions import (
     dim_date,
     dim_fuel_grade,
     dim_hub,
+    dim_port,
     dim_product,
     dim_status,
+    dim_time,
     from_reference,
     status_sk,
+    time_sk,
 )
-from refinery.gold.keys import SPECIAL_MEMBERS, UNKNOWN, hashed_sk
+from refinery.gold.keys import NOT_YET, SPECIAL_MEMBERS, UNKNOWN, hashed_sk
 from refinery.gold.schemas import (
     DIM_AREA_DDL,
     DIM_DATE_DDL,
     DIM_FUEL_GRADE_DDL,
     DIM_HUB_DDL,
+    DIM_PORT_DDL,
     DIM_PRODUCT_DDL,
     DIM_STATUS_DDL,
+    DIM_TIME_DDL,
 )
 
 
@@ -110,6 +116,55 @@ def test_date_sk_is_yyyymmdd(spark):
     assert df.select(date_sk(F.col("d"))).first()[0] == 20261114
 
 
+def test_dim_time_matches_its_ddl(spark):
+    assert same_columns(dim_time(spark), spark, DIM_TIME_DDL)
+
+
+def test_dim_time_has_every_minute_once_plus_special_members(spark):
+    keys = [r.time_sk for r in dim_time(spark).collect()]
+
+    assert len(keys) == MINUTES_PER_DAY + len(SPECIAL_MEMBERS)
+    assert len(set(keys)) == len(keys)
+    assert sorted(k for k in keys if k >= 0)[:3] == [0, 1, 2]
+
+
+@pytest.mark.parametrize(
+    "key, time, hour, minute, day_part",
+    [
+        (0, "00:00", 0, 0, "night"),
+        (559, "05:59", 5, 59, "night"),
+        (600, "06:00", 6, 0, "morning"),
+        (1159, "11:59", 11, 59, "morning"),
+        (1200, "12:00", 12, 0, "afternoon"),
+        (1800, "18:00", 18, 0, "evening"),
+        (2359, "23:59", 23, 59, "evening"),
+    ],
+)
+def test_dim_time_attributes_of_a_minute(spark, key, time, hour, minute, day_part):
+    row = dim_time(spark).where(F.col("time_sk") == key).first()
+
+    assert (row.time, row.hour, row.minute, row.day_part) == (time, hour, minute, day_part)
+
+
+def test_dim_time_key_is_the_one_facts_compute(spark):
+    dim = dim_time(spark).where(F.col("time_sk") >= 0)
+    ts = F.make_timestamp(F.lit(2026), F.lit(11), F.lit(14), F.col("hour"), F.col("minute"), F.lit(0))
+
+    assert dim.where(time_sk(ts) != F.col("time_sk")).count() == 0
+
+
+def test_time_sk_is_hhmm_and_drops_the_seconds(spark):
+    df = spark.createDataFrame([(datetime(2026, 11, 14, 8, 35, 59, tzinfo=UTC),)], "ts TIMESTAMP")
+
+    assert df.select(time_sk(F.col("ts"))).first()[0] == 835
+
+
+def test_dim_time_special_members_have_a_label_and_no_hour(spark):
+    row = dim_time(spark).where(F.col("time_sk") == NOT_YET).first()
+
+    assert (row.time, row.day_part, row.hour, row.minute) == ("Not yet", "Not yet", None, None)
+
+
 SILVER_METADATA = "loaded_at TIMESTAMP, source_file STRING"
 
 
@@ -135,12 +190,40 @@ def ref_fuel_grade(spark):
     )
 
 
+def ref_terminal_zone(spark):
+    return spark.createDataFrame(
+        [
+            (
+                "HOU",
+                "Houston Ship Channel",
+                "refinery dock",
+                "R30",
+                "POLYGON((-95.3 29.6, -94.95 29.6, -94.95 29.82, -95.3 29.6))",
+                None,
+                None,
+            ),
+            (
+                "BOS",
+                "Boston Harbor",
+                "product terminal",
+                "R1X",
+                "POLYGON((-71.1 42.2, -70.85 42.2, -70.85 42.45, -71.1 42.2))",
+                None,
+                None,
+            ),
+        ],
+        "port_bk STRING, port_name STRING, terminal_type STRING, area_bk STRING, boundary_wkt STRING, "
+        f"{SILVER_METADATA}",
+    )
+
+
 @pytest.mark.parametrize(
     "build, ref, ddl",
     [
         (dim_hub, ref_hub, DIM_HUB_DDL),
         (dim_product, ref_product, DIM_PRODUCT_DDL),
         (dim_fuel_grade, ref_fuel_grade, DIM_FUEL_GRADE_DDL),
+        (dim_port, ref_terminal_zone, DIM_PORT_DDL),
     ],
 )
 def test_reference_dimension_matches_its_ddl(spark, build, ref, ddl):
@@ -165,6 +248,19 @@ def test_reference_dimension_keeps_every_reference_row_plus_special_members(spar
     dim = from_reference(ref_hub(spark), "hub_sk", "hub_bk", ["hub_name"])
 
     assert sorted(r.hub_bk for r in dim.collect()) == sorted(["NYH", "ZEU", "Unknown", "Not applicable", "Not yet"])
+
+
+def test_dim_port_takes_the_boundary_from_boundary_wkt_and_hashes_the_port(spark):
+    ports = {r.port_bk: r for r in dim_port(ref_terminal_zone(spark)).collect()}
+    houston = ports["HOU"]
+
+    assert houston.boundary.startswith("POLYGON((-95.3 29.6")
+    assert (houston.port_name, houston.terminal_type, houston.area_bk) == (
+        "Houston Ship Channel",
+        "refinery dock",
+        "R30",
+    )
+    assert houston.port_sk == spark.range(1).select(hashed_sk(F.lit("HOU"))).first()[0]
 
 
 AREA_COLUMNS = "area_bk STRING, area_name STRING, area_level STRING, parent_area_bk STRING, is_coastal BOOLEAN"

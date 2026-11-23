@@ -22,6 +22,14 @@ def date_sk(date: Column) -> Column:
     return F.date_format(date, "yyyyMMdd").cast("int")
 
 
+MINUTES_PER_DAY = 24 * 60
+
+
+def time_sk(ts: Column) -> Column:
+    """The dim_time key, hhmm as a number (835 for 08:35); facts call this too."""
+    return (F.hour(ts) * 100 + F.minute(ts)).cast("int")
+
+
 def from_reference(ref: DataFrame, sk_col: str, bk_col: str, attributes: list[str]) -> DataFrame:
     """A Type 1 dimension from a silver reference table: hashed key, business key, attributes, special members."""
     dim = ref.select(hashed_sk(F.col(bk_col)).alias(sk_col), bk_col, *attributes)
@@ -60,6 +68,27 @@ def dim_date(fact_dates: list[DataFrame], end: date) -> DataFrame:
     return with_special_members(dim, "date_sk")
 
 
+def dim_time(spark: SparkSession) -> DataFrame:
+    """One row per minute of the day (1,440): the time of day facts happen at, plus the special members."""
+    minutes = spark.range(MINUTES_PER_DAY).select(
+        F.floor(F.col("id") / 60).cast("int").alias("hour"),
+        (F.col("id") % 60).cast("int").alias("minute"),
+    )
+    hour = F.col("hour")
+    dim = minutes.select(
+        (hour * 100 + F.col("minute")).cast("int").alias("time_sk"),
+        F.format_string("%02d:%02d", hour, F.col("minute")).alias("time"),
+        hour.cast("tinyint").alias("hour"),
+        F.col("minute").cast("tinyint").alias("minute"),
+        F.when(hour < 6, "night")
+        .when(hour < 12, "morning")
+        .when(hour < 18, "afternoon")
+        .otherwise("evening")
+        .alias("day_part"),
+    )
+    return with_special_members(dim, "time_sk")
+
+
 def dim_hub(ref_hub: DataFrame) -> DataFrame:
     """One wholesale trading hub; served_area_bk is NULL for ZEU (Europe), which serves no U.S. area."""
     return from_reference(ref_hub, "hub_sk", "hub_bk", ["hub_name", "served_area_bk"])
@@ -78,6 +107,12 @@ def dim_product(ref_product: DataFrame) -> DataFrame:
 def dim_fuel_grade(ref_fuel_grade: DataFrame) -> DataFrame:
     """One priced grade of fuel or crude; the price in the fact is always $/gal, source_unit is descriptive."""
     return from_reference(ref_fuel_grade, "grade_sk", "grade_bk", ["grade_name", "source_unit"])
+
+
+def dim_port(ref_terminal_zone: DataFrame) -> DataFrame:
+    """One terminal zone where tankers load, unload or wait; boundary is the zone polygon as WKT text."""
+    zones = ref_terminal_zone.withColumnRenamed("boundary_wkt", "boundary")
+    return from_reference(zones, "port_sk", "port_bk", ["port_name", "terminal_type", "area_bk", "boundary"])
 
 
 def dim_area(ref_area: DataFrame) -> DataFrame:

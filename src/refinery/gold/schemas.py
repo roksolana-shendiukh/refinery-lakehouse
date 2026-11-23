@@ -20,6 +20,12 @@ DIM_AREA_DDL = (
     "country_name STRING, region_name STRING, subregion_name STRING, is_coastal BOOLEAN"
 )
 
+DIM_TIME_DDL = "time_sk INT NOT NULL, time STRING, hour TINYINT, minute TINYINT, day_part STRING"
+
+DIM_PORT_DDL = (
+    "port_sk BIGINT NOT NULL, port_bk STRING, port_name STRING, terminal_type STRING, area_bk STRING, boundary STRING"
+)
+
 FACT_SUPPLY_DDL = (
     "date_sk INT NOT NULL, area_sk BIGINT NOT NULL, product_sk BIGINT NOT NULL, status_sk BIGINT NOT NULL, "
     "rate_kbd DECIMAL(10,1)"

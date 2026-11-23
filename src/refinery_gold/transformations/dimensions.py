@@ -11,16 +11,20 @@ from refinery.gold.dimensions import (
     dim_date,
     dim_fuel_grade,
     dim_hub,
+    dim_port,
     dim_product,
     dim_status,
+    dim_time,
 )
 from refinery.gold.schemas import (
     DIM_AREA_DDL,
     DIM_DATE_DDL,
     DIM_FUEL_GRADE_DDL,
     DIM_HUB_DDL,
+    DIM_PORT_DDL,
     DIM_PRODUCT_DDL,
     DIM_STATUS_DDL,
+    DIM_TIME_DDL,
 )
 
 
@@ -52,6 +56,15 @@ def dim_date_table():
 
 
 @dp.materialized_view(
+    name="dim_time",
+    schema=DIM_TIME_DDL,
+    comment="One minute of the day (1,440 rows), plus Unknown / Not applicable / Not yet",
+)
+def dim_time_table():
+    return dim_time(spark)
+
+
+@dp.materialized_view(
     name="dim_hub",
     schema=DIM_HUB_DDL,
     comment="One wholesale trading hub where spot prices are set, plus Unknown / Not applicable / Not yet",
@@ -76,6 +89,16 @@ def dim_product_table():
 )
 def dim_fuel_grade_table():
     return dim_fuel_grade(silver(spark, "ref_fuel_grade"))
+
+
+@dp.materialized_view(
+    name="dim_port",
+    schema=DIM_PORT_DDL,
+    comment="One terminal zone where tankers load, unload or wait, with its area, "
+    "plus Unknown / Not applicable / Not yet",
+)
+def dim_port_table():
+    return dim_port(silver(spark, "ref_terminal_zone"))
 
 
 @dp.materialized_view(
