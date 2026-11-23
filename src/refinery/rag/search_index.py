@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass
 
 from databricks.sdk.errors import NotFound
+from databricks.sdk.service.catalog import PermissionsChange, Privilege
 from databricks.sdk.service.vectorsearch import (
     DeltaSyncVectorIndexSpecRequest,
     EmbeddingSourceColumn,
@@ -258,6 +259,26 @@ def delete_endpoint(client, name):
     return True
 
 
+def grant_index_to_app(client, index_name, app_name):
+    """Give the app's service principal SELECT on the index, so the app can query it as itself.
+    The index is created anew on every start, so the grant is given on every start too.
+    Returns the principal, or None if there is no such app (the assistant app runs only in PROD).
+    """
+    try:
+        app = client.apps.get(app_name)
+    except NotFound:
+        logger.info("App %s does not exist; no grant on %s", app_name, index_name)
+        return None
+    principal = app.service_principal_client_id
+    logger.info("Granting SELECT on %s to app %s (%s)", index_name, app_name, principal)
+    client.grants.update(
+        securable_type="table",
+        full_name=index_name,
+        changes=[PermissionsChange(principal=principal, add=[Privilege.SELECT])],
+    )
+    return principal
+
+
 def stop_search(client, config, **wait_options):
     """Delete the index, then the endpoint: nothing is billed for vector search afterward."""
     return {
@@ -266,16 +287,21 @@ def stop_search(client, config, **wait_options):
     }
 
 
-def start_search(client, config, expected_rows, **wait_options):
-    """Create what is missing (endpoint, index) and sync the index with the chunks table."""
+def start_search(client, config, expected_rows, reader_app=None, **wait_options):
+    """Create what is missing (endpoint, index), sync the index with the chunks table
+    and let reader_app (the assistant app) query it.
+    """
     endpoint_created = ensure_endpoint(client, config, **wait_options)
     index_created = ensure_index(client, config)
     status = sync_index(client, config, expected_rows, **wait_options)
-    return {
+    result = {
         "endpoint_created": endpoint_created,
         "index_created": index_created,
         "indexed_rows": status.get("indexed_row_count"),
     }
+    if reader_app:
+        result["reader_principal"] = grant_index_to_app(client, config.index_name, reader_app)
+    return result
 
 
 def refresh_search(client, config, expected_rows, **wait_options):

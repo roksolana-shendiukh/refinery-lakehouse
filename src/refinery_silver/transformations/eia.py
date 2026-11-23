@@ -28,14 +28,15 @@ def eia_price_checked():
     )
     # The scope filter runs before the checks: retail rows outside ref_area are not quarantined.
     scoped = in_scope(prices, spark.read.table("ref_area"))
-    checked = check(scoped, PRICE_CHECKS, ENGINE, {"ref_hub": spark.read.table("ref_hub")})
-    return checked.drop("source_units")
+    # source_units stays in the view, so the metrics see the same columns the checks ran on.
+    return check(scoped, PRICE_CHECKS, ENGINE, {"ref_hub": spark.read.table("ref_hub")})
 
 
 def define_eia_table(name, checked_view, comment):
     @dp.materialized_view(name=name, comment=comment, cluster_by=["report_week"])
     def silver():
-        return valid(spark.read.table(checked_view))
+        # source_units is a helper column of the price checks
+        return valid(spark.read.table(checked_view)).drop("source_units")
 
     @dp.materialized_view(
         name=f"{QUALITY}.{name}_quarantine",
@@ -43,7 +44,7 @@ def define_eia_table(name, checked_view, comment):
         cluster_by=["report_week"],
     )
     def quarantined():
-        return quarantine(spark.read.table(checked_view))
+        return quarantine(spark.read.table(checked_view)).drop("source_units")
 
 
 define_eia_table(

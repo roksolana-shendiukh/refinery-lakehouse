@@ -47,6 +47,17 @@ resources:
             - task_key: refresh_bronze
           pipeline_task:
             pipeline_id: ${resources.pipelines.silver_batch.id}
+        - task_key: save_dq_metrics
+          depends_on:
+            - task_key: refresh_silver
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/refinery_silver/save_dq_metrics.py
+            parameters:
+              - --latest
+              - ${var.catalog}.${resources.schemas.quality.name}.dq_summary_metrics_latest
+              - --history
+              - ${var.catalog}.${resources.schemas.quality.name}.dq_summary_metrics
         - task_key: refresh_gold
           depends_on:
             - task_key: refresh_silver

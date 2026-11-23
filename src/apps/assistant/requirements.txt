@@ -1,0 +1,4 @@
+dash>=4.5,<5
+gunicorn>=23
+databricks-sdk>=0.166
+openai>=3.57
