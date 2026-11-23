@@ -2,15 +2,19 @@ import datetime
 import json
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from assistant.agent import ERROR_ANSWER
 from assistant.evaluation import (
     RETRIEVER_SPAN,
     EvalQuestionsError,
+    NoSearchAssistant,
     TracedSearch,
     load_questions,
     retriever_documents,
 )
+from assistant.prompts import REFUSAL
 from assistant.retrieval import Chunk
 
 QUESTIONS_FILE = Path(__file__).parents[2] / "data" / "rag" / "eval_questions.json"
@@ -146,3 +150,60 @@ def test_empty_search_is_recorded_as_no_documents():
 
     assert TracedSearch(lambda query, doc_type=None, since=None: [], start_span)("borscht") == []
     assert spans[0].outputs == []
+
+
+TODAY = datetime.date(2026, 11, 23)
+
+
+class FakeLLM:
+    def __init__(self, content="Brent averaged about $82/b in 2023.", error=None):
+        self.content, self.error = content, error
+        self.requests = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+    def create(self, **request):
+        self.requests.append(request)
+        if self.error:
+            raise self.error
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=self.content))],
+            usage=SimpleNamespace(prompt_tokens=120, completion_tokens=30),
+        )
+
+
+def ticking_clock():
+    times = iter([10.0, 11.5])
+    return lambda: next(times)
+
+
+def baseline(llm):
+    return NoSearchAssistant(llm, "llama", today=lambda: TODAY, clock=ticking_clock())
+
+
+def test_baseline_asks_the_same_model_once_without_tools():
+    llm = FakeLLM()
+
+    answer = baseline(llm).ask("What is the Brent forecast for 2026?")
+
+    (request,) = llm.requests
+    assert request["model"] == "llama"
+    assert request["temperature"] == 0
+    assert "tools" not in request
+    system, user = request["messages"]
+    assert "November 23, 2026" in system["content"]
+    assert REFUSAL in system["content"]
+    assert user == {"role": "user", "content": "What is the Brent forecast for 2026?"}
+    assert answer.answer == "Brent averaged about $82/b in 2023."
+    assert (answer.prompt_tokens, answer.completion_tokens, answer.latency_ms) == (120, 30, 1500)
+    assert (answer.sources, answer.chunks, answer.error) == ((), (), None)
+
+
+def test_empty_baseline_answer_counts_as_a_refusal():
+    assert baseline(FakeLLM(content="  ")).ask("Borscht?").answer == REFUSAL
+
+
+def test_failed_baseline_answer_is_kept_with_its_error():
+    answer = baseline(FakeLLM(error=TimeoutError("model timed out"))).ask("Brent?")
+
+    assert answer.answer == ERROR_ANSWER
+    assert answer.error == "TimeoutError: model timed out"

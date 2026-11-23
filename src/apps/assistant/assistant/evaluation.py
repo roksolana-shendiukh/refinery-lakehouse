@@ -4,9 +4,17 @@ This module holds the logic that needs no MLflow, so it is tested without it and
 without extra dependencies. The evaluation job (evaluate.py) puts it together with MLflow.
 """
 
+import datetime
 import json
+import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
+
+from assistant.agent import ERROR_ANSWER, AgentAnswer
+from assistant.prompts import REFUSAL
+
+logger = logging.getLogger(__name__)
 
 CATEGORIES = ("outlook", "article", "multi_source", "out_of_scope", "injection")
 # Span type that MLflow judges read the retrieved passages from (mlflow.entities.SpanType.RETRIEVER)
@@ -102,3 +110,66 @@ class TracedSearch:
             chunks = self.search(query, doc_type=doc_type, since=since)
             span.set_outputs(retriever_documents(chunks))
         return chunks
+
+
+# The baseline has the agent's rules except the search: same scope, same refusal, same length
+BASELINE_PROMPT = f"""You are the Refinery assistant. You answer questions about the U.S. and global petroleum market \
+(crude oil, gasoline, diesel, jet fuel, refining, prices, production, trade).
+
+Today is {{today}}.
+
+How to answer:
+- You have no search tool and no documents: answer from your own knowledge.
+- Say when the data is from (for example "in 2023"), because what you know may be older than today.
+- If you do not know the answer, or the question is not about the petroleum market, \
+reply with exactly: {REFUSAL}
+- Keep the answer short: three to six sentences, figures with their units."""
+
+
+def baseline_prompt(today):
+    """The baseline system prompt with today's date, written as in the agent's prompt."""
+    return BASELINE_PROMPT.replace("{today}", f"{today:%B} {today.day}, {today.year}")
+
+
+class NoSearchAssistant:
+    """The agent's model asked once, without tools: the baseline that shows what retrieval adds.
+    ask() returns an AgentAnswer like Agent.ask, so the evaluation treats both the same way.
+    """
+
+    def __init__(self, llm, model, today=None, clock=time.monotonic):
+        self.llm = llm  # OpenAI-compatible client, as for the agent
+        self.model = model
+        self.today = today or (lambda: datetime.datetime.now(datetime.UTC).date())
+        self.clock = clock
+
+    def ask(self, question):
+        started = self.clock()
+        prompt_tokens = completion_tokens = 0
+        try:
+            response = self.llm.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": baseline_prompt(self.today())},
+                    {"role": "user", "content": question},
+                ],
+                temperature=0,
+            )
+            answer = (response.choices[0].message.content or "").strip() or REFUSAL
+            if response.usage:
+                prompt_tokens = response.usage.prompt_tokens or 0
+                completion_tokens = response.usage.completion_tokens or 0
+            error = None
+        except Exception as exc:  # one failed answer is scored as such; the run goes on
+            logger.exception("Baseline question failed: %s", question)
+            answer, error = ERROR_ANSWER, f"{type(exc).__name__}: {exc}"
+
+        return AgentAnswer(
+            question=question,
+            answer=answer,
+            model=self.model,
+            iterations=1,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            latency_ms=round((self.clock() - started) * 1000),
+            error=error,
+        )
