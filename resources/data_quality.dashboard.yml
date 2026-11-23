@@ -7,3 +7,13 @@ resources:
       dataset_catalog: ${var.catalog}
       dataset_schema: ${resources.schemas.quality.name}
       embed_credentials: false
+
+# The group exists only in PROD (an account group), so the permission is set in the prod target.
+targets:
+  prod:
+    resources:
+      dashboards:
+        data_quality:
+          permissions:
+            - level: CAN_RUN
+              group_name: refinery_data_engineers

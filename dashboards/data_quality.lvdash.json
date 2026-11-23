@@ -506,14 +506,20 @@
                   "scale": {
                     "type": "categorical"
                   },
-                  "displayName": "Table"
+                  "displayName": "Table",
+                  "axis": {
+                    "hideTitle": true
+                  }
                 },
                 "y": {
                   "fieldName": "age_hours",
                   "scale": {
                     "type": "quantitative"
                   },
-                  "displayName": "Age, hours"
+                  "displayName": "Age, hours",
+                  "axis": {
+                    "hideTitle": true
+                  }
                 },
                 "color": {
                   "fieldName": "freshness",
@@ -585,14 +591,20 @@
                   "scale": {
                     "type": "categorical"
                   },
-                  "displayName": "Table"
+                  "displayName": "Table",
+                  "axis": {
+                    "hideTitle": true
+                  }
                 },
                 "y": {
                   "fieldName": "row_count",
                   "scale": {
                     "type": "quantitative"
                   },
-                  "displayName": "Rows"
+                  "displayName": "Rows",
+                  "axis": {
+                    "hideTitle": true
+                  }
                 },
                 "color": {
                   "fieldName": "kind",
@@ -660,14 +672,20 @@
                   "scale": {
                     "type": "temporal"
                   },
-                  "displayName": "Run time"
+                  "displayName": "Run time",
+                  "axis": {
+                    "hideTitle": true
+                  }
                 },
                 "y": {
                   "fieldName": "row_count",
                   "scale": {
                     "type": "quantitative"
                   },
-                  "displayName": "Rows"
+                  "displayName": "Rows",
+                  "axis": {
+                    "hideTitle": true
+                  }
                 },
                 "color": {
                   "fieldName": "kind",
@@ -735,14 +753,20 @@
                   "scale": {
                     "type": "categorical"
                   },
-                  "displayName": "Load"
+                  "displayName": "Load",
+                  "axis": {
+                    "hideTitle": true
+                  }
                 },
                 "y": {
                   "fieldName": "revised_rows",
                   "scale": {
                     "type": "quantitative"
                   },
-                  "displayName": "Revised rows"
+                  "displayName": "Revised rows",
+                  "axis": {
+                    "hideTitle": true
+                  }
                 },
                 "color": {
                   "fieldName": "table_name",
@@ -810,14 +834,20 @@
                   "scale": {
                     "type": "categorical"
                   },
-                  "displayName": "Table"
+                  "displayName": "Table",
+                  "axis": {
+                    "hideTitle": true
+                  }
                 },
                 "y": {
                   "fieldName": "row_count",
                   "scale": {
                     "type": "quantitative"
                   },
-                  "displayName": "Rows"
+                  "displayName": "Rows",
+                  "axis": {
+                    "hideTitle": true
+                  }
                 },
                 "color": {
                   "fieldName": "kind",
