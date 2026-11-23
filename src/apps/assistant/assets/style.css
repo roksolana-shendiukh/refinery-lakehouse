@@ -1,0 +1,78 @@
+/* Assistant look: the palette and fonts of the live map. Dash loads every file in assets/ automatically. */
+
+:root {
+  --bg: #0B1220;
+  --panel: #0D1526;
+  --panel-2: #111A2B;
+  --line: #1E2A40;
+  --line-2: #22304A;
+  --text: #E6EDF7;
+  --muted: #9AA8BF;
+  --soft: #B7C3D6;
+  --accent: #7CC4FF;
+  --warn: #FFC266;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); }
+body { font-family: Inter, system-ui, sans-serif; color: var(--text); line-height: 1.5; }
+a { color: var(--accent); }
+
+.app { min-height: 100vh; display: flex; flex-direction: column; }
+.app-main { flex: 1 1 auto; width: 100%; max-width: 920px; margin: 0 auto; padding: 24px 20px; }
+.app-error { color: var(--warn); }
+
+/* Header */
+.app-header {
+  display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+  padding: 16px 20px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.app-header h1 { margin: 0; font: 600 20px "Space Grotesk", Inter, sans-serif; }
+.subtitle { color: var(--muted); font-size: 14px; }
+
+/* Question */
+.ask-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.question {
+  width: 100%; min-height: 84px; resize: vertical; padding: 12px; border-radius: 10px;
+  border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font: 15px Inter, sans-serif;
+}
+.question:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ask-row { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; margin-top: 12px; }
+.examples { display: flex; flex-wrap: wrap; gap: 8px; }
+.example {
+  padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--panel-2);
+  color: var(--soft); font-size: 13px; cursor: pointer; text-align: left;
+}
+.example:hover { color: var(--text); border-color: var(--accent); }
+.ask {
+  flex: 0 0 auto; padding: 10px 24px; border-radius: 10px; border: 0; background: var(--accent);
+  color: #0B1220; font: 600 15px Inter, sans-serif; cursor: pointer;
+}
+.ask:hover { filter: brightness(1.1); }
+
+/* Answer */
+.answer-panel { margin-top: 20px; }
+.answer { font-size: 16px; }
+.answer p { margin: 0 0 12px; }
+.status-off {
+  padding: 12px 16px; border-radius: 10px; border: 1px solid #6B4F1F; background: #2A2112; color: var(--warn);
+}
+
+/* Sources and context */
+.sources h2, .context summary { font: 600 14px Inter, sans-serif; color: var(--soft); }
+.sources h2 { margin: 20px 0 8px; }
+.sources summary { cursor: pointer; margin: 10px 0 2px; font: 500 13px Inter, sans-serif; color: var(--muted); }
+.source { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.source-kind {
+  flex: 0 0 auto; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--muted);
+}
+.source-date { flex: 0 0 auto; color: var(--muted); font-size: 13px; }
+.context { margin-top: 16px; }
+.context details { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; background: var(--panel); }
+.context summary { cursor: pointer; }
+.chunk { padding: 10px 0; border-top: 1px solid var(--line); font-size: 13px; color: var(--soft); white-space: pre-wrap; }
+.chunk-head { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.details { margin-top: 12px; color: var(--muted); font-size: 12px; }
+
+.app-footer { padding: 12px 20px; color: var(--muted); font-size: 12px; text-align: center; border-top: 1px solid var(--line); }
