@@ -32,7 +32,6 @@ DIM_VESSEL_DDL = (
     "is_current BOOLEAN, is_inferred BOOLEAN, inferred_at TIMESTAMP"
 )
 
-
 FACT_SUPPLY_DDL = (
     "date_sk INT NOT NULL, area_sk BIGINT NOT NULL, product_sk BIGINT NOT NULL, status_sk BIGINT NOT NULL, "
     "rate_kbd DECIMAL(10,1)"
@@ -42,4 +41,11 @@ FACT_SUPPLY_DDL = (
 FACT_PRICE_DDL = (
     "date_sk INT NOT NULL, grade_sk BIGINT NOT NULL, area_sk BIGINT NOT NULL, hub_sk BIGINT NOT NULL, "
     "product_sk BIGINT NOT NULL, status_sk BIGINT NOT NULL, series_id STRING, price DECIMAL(9,3)"
+)
+
+FACT_PORT_CALL_DDL = (
+    "vessel_sk BIGINT NOT NULL, port_sk BIGINT NOT NULL, entered_date_sk INT NOT NULL, entered_time_sk INT NOT NULL, "
+    "moored_date_sk INT NOT NULL, moored_time_sk INT NOT NULL, departed_date_sk INT NOT NULL, "
+    "departed_time_sk INT NOT NULL, area_sk BIGINT NOT NULL, wait_hours DECIMAL(8,2), berth_hours DECIMAL(8,2), "
+    "arrival_draught DECIMAL(4,1)"
 )
