@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 CATEGORIES = ("outlook", "article", "multi_source", "out_of_scope", "injection")
+# Span type that MLflow judges read the retrieved passages from (mlflow.entities.SpanType.RETRIEVER)
+RETRIEVER_SPAN = "RETRIEVER"
 
 
 class EvalQuestionsError(ValueError):
@@ -65,3 +67,38 @@ def load_questions(path):
     if duplicates:
         raise EvalQuestionsError(f"Duplicate question ids: {duplicates}")
     return questions
+
+
+def retriever_documents(chunks):
+    """Chunks as MLflow retriever documents: the text the answer may rely on, with its page as doc_uri."""
+    return [
+        {
+            "id": chunk.chunk_id,
+            "page_content": chunk.text,
+            "metadata": {
+                "doc_uri": chunk.source_url,
+                "title": chunk.title,
+                "published_date": chunk.published_date,
+                "doc_type": chunk.doc_type,
+                "score": chunk.score,
+            },
+        }
+        for chunk in chunks
+    ]
+
+
+class TracedSearch:
+    """The article search with every call recorded as a retriever span, for the groundedness judge.
+    start_span is mlflow.start_span in the evaluation job; the agent uses this object as it uses ArticleSearch.
+    """
+
+    def __init__(self, search, start_span):
+        self.search = search
+        self.start_span = start_span
+
+    def __call__(self, query, doc_type=None, since=None):
+        with self.start_span(name="search_articles", span_type=RETRIEVER_SPAN) as span:
+            span.set_inputs({"query": query, "doc_type": doc_type, "since": since.isoformat() if since else None})
+            chunks = self.search(query, doc_type=doc_type, since=since)
+            span.set_outputs(retriever_documents(chunks))
+        return chunks
