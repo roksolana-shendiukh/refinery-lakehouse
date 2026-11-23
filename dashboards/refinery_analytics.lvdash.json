@@ -1,0 +1,2041 @@
+{
+  "datasets": [
+    {
+      "displayName": "q1_weekly_supply",
+      "name": "f01250f2",
+      "queryLines": [
+        "WITH latest AS (\n",
+        "  SELECT MAX(d.date) AS week\n",
+        "  FROM fact_periodic_supply_weekly f\n",
+        "  JOIN dim_date d ON f.date_sk = d.date_sk\n",
+        "),\n",
+        "supply AS (\n",
+        "  SELECT p.product_name, d.date, f.rate_kbd\n",
+        "  FROM fact_periodic_supply_weekly f\n",
+        "  JOIN dim_date d ON f.date_sk = d.date_sk\n",
+        "  JOIN dim_product p ON f.product_sk = p.product_sk\n",
+        "  JOIN dim_area a ON f.area_sk = a.area_sk\n",
+        "  WHERE a.area_bk = 'NUS'\n",
+        "),\n",
+        "compared AS (\n",
+        "  SELECT\n",
+        "    s.product_name,\n",
+        "    l.week,\n",
+        "    MAX(CASE WHEN s.date = l.week THEN s.rate_kbd END) AS latest_kbd,\n",
+        "    MAX(CASE WHEN s.date = date_sub(l.week, 7) THEN s.rate_kbd END) AS prev_week_kbd,\n",
+        "    MAX(CASE WHEN s.date = date_sub(l.week, 364) THEN s.rate_kbd END) AS last_year_kbd\n",
+        "  FROM supply s\n",
+        "  CROSS JOIN latest l\n",
+        "  WHERE s.date IN (l.week, date_sub(l.week, 7), date_sub(l.week, 364))\n",
+        "  GROUP BY s.product_name, l.week\n",
+        ")\n",
+        "SELECT\n",
+        "  product_name,\n",
+        "  week,\n",
+        "  latest_kbd,\n",
+        "  prev_week_kbd,\n",
+        "  last_year_kbd,\n",
+        "  try_divide(latest_kbd - prev_week_kbd, prev_week_kbd) AS wow_pct,\n",
+        "  try_divide(latest_kbd - last_year_kbd, last_year_kbd) AS yoy_pct\n",
+        "FROM compared\n",
+        "ORDER BY latest_kbd DESC;"
+      ]
+    },
+    {
+      "displayName": "q1_total",
+      "name": "f164c4c3",
+      "queryLines": [
+        "WITH latest AS (\n",
+        "  SELECT MAX(d.date) AS week\n",
+        "  FROM fact_periodic_supply_weekly f\n",
+        "  JOIN dim_date d ON f.date_sk = d.date_sk\n",
+        "),\n",
+        "supply AS (\n",
+        "  SELECT d.date, f.rate_kbd\n",
+        "  FROM fact_periodic_supply_weekly f\n",
+        "  JOIN dim_date d ON f.date_sk = d.date_sk\n",
+        "  JOIN dim_area a ON f.area_sk = a.area_sk\n",
+        "  WHERE a.area_bk = 'NUS'\n",
+        "),\n",
+        "totals AS (\n",
+        "  SELECT\n",
+        "    l.week,\n",
+        "    SUM(CASE WHEN s.date = l.week THEN s.rate_kbd END) AS latest_kbd,\n",
+        "    SUM(CASE WHEN s.date = date_sub(l.week, 7) THEN s.rate_kbd END) AS prev_week_kbd,\n",
+        "    SUM(CASE WHEN s.date = date_sub(l.week, 364) THEN s.rate_kbd END) AS last_year_kbd\n",
+        "  FROM supply s\n",
+        "  CROSS JOIN latest l\n",
+        "  WHERE s.date IN (l.week, date_sub(l.week, 7), date_sub(l.week, 364))\n",
+        "  GROUP BY l.week\n",
+        ")\n",
+        "SELECT\n",
+        "  week,\n",
+        "  latest_kbd,\n",
+        "  prev_week_kbd,\n",
+        "  last_year_kbd,\n",
+        "  try_divide(latest_kbd - prev_week_kbd, prev_week_kbd) AS wow_pct,\n",
+        "  try_divide(latest_kbd - last_year_kbd, last_year_kbd) AS yoy_pct\n",
+        "FROM totals;"
+      ]
+    },
+    {
+      "displayName": "q2_seasonality",
+      "name": "1f6dc02c",
+      "queryLines": [
+        "WITH weekly AS (\n",
+        "  SELECT\n",
+        "    d.date,\n",
+        "    d.year,\n",
+        "    d.month_number,\n",
+        "    d.month_name,\n",
+        "    p.product_name,\n",
+        "    f.rate_kbd\n",
+        "  FROM fact_periodic_supply_weekly f\n",
+        "  JOIN dim_date d ON f.date_sk = d.date_sk\n",
+        "  JOIN dim_product p ON f.product_sk = p.product_sk\n",
+        "  JOIN dim_area a ON f.area_sk = a.area_sk\n",
+        "  WHERE a.area_bk = 'NUS'\n",
+        "    AND f.rate_kbd IS NOT NULL\n",
+        "),\n",
+        "indexed AS (\n",
+        "  SELECT\n",
+        "    *,\n",
+        "    rate_kbd / AVG(rate_kbd) OVER (PARTITION BY product_name, year) * 100 AS seasonal_index,\n",
+        "    COUNT(rate_kbd) OVER (PARTITION BY product_name, year) AS weeks_in_year\n",
+        "  FROM weekly\n",
+        ")\n",
+        "SELECT date, year, month_number, month_name,\n",
+        "       date_format(date, 'MM MMM') AS month_label,\n",
+        "       product_name, rate_kbd, seasonal_index\n",
+        "FROM indexed\n",
+        "WHERE weeks_in_year >= 52;"
+      ]
+    },
+    {
+      "displayName": "q3_recovery",
+      "name": "b0cde737",
+      "queryLines": [
+        "WITH weekly_total AS (\n",
+        "  SELECT\n",
+        "    d.date,\n",
+        "    d.year,\n",
+        "    SUM(f.rate_kbd) AS total_kbd,\n",
+        "    COUNT(f.rate_kbd) AS products_reported\n",
+        "  FROM fact_periodic_supply_weekly f\n",
+        "  JOIN dim_date d ON f.date_sk = d.date_sk\n",
+        "  JOIN dim_area a ON f.area_sk = a.area_sk\n",
+        "  WHERE a.area_bk = 'NUS'\n",
+        "  GROUP BY d.date, d.year\n",
+        "),\n",
+        "all_products AS (\n",
+        "  SELECT COUNT(*) AS n\n",
+        "  FROM dim_product\n",
+        "  WHERE product_sk NOT BETWEEN -3 AND -1\n",
+        "),\n",
+        "complete_weeks AS (\n",
+        "  SELECT w.*\n",
+        "  FROM weekly_total w\n",
+        "  CROSS JOIN all_products p\n",
+        "  WHERE w.products_reported = p.n\n",
+        "),\n",
+        "baseline AS (\n",
+        "  SELECT AVG(total_kbd) AS kbd_2019\n",
+        "  FROM complete_weeks\n",
+        "  WHERE year = 2019\n",
+        ")\n",
+        "SELECT\n",
+        "  c.date,\n",
+        "  c.year,\n",
+        "  c.total_kbd,\n",
+        "  c.total_kbd / b.kbd_2019 * 100 AS pct_of_2019\n",
+        "FROM complete_weeks c\n",
+        "CROSS JOIN baseline b;"
+      ]
+    },
+    {
+      "displayName": "q3_mix",
+      "name": "a49bce5e",
+      "queryLines": [
+        "WITH weekly AS (\n",
+        "  SELECT\n",
+        "    d.date,\n",
+        "    d.year,\n",
+        "    p.product_name,\n",
+        "    f.rate_kbd\n",
+        "  FROM fact_periodic_supply_weekly f\n",
+        "  JOIN dim_date d ON f.date_sk = d.date_sk\n",
+        "  JOIN dim_product p ON f.product_sk = p.product_sk\n",
+        "  JOIN dim_area a ON f.area_sk = a.area_sk\n",
+        "  WHERE a.area_bk = 'NUS'\n",
+        "    AND f.rate_kbd IS NOT NULL\n",
+        "),\n",
+        "all_products AS (\n",
+        "  SELECT COUNT(*) AS n\n",
+        "  FROM dim_product\n",
+        "  WHERE product_sk NOT BETWEEN -3 AND -1\n",
+        "),\n",
+        "shares AS (\n",
+        "  SELECT\n",
+        "    *,\n",
+        "    rate_kbd / SUM(rate_kbd) OVER (PARTITION BY date) AS share,\n",
+        "    COUNT(*) OVER (PARTITION BY date) AS products_reported\n",
+        "  FROM weekly\n",
+        ")\n",
+        "SELECT s.date, s.year, s.product_name, s.rate_kbd, s.share\n",
+        "FROM shares s\n",
+        "CROSS JOIN all_products p\n",
+        "WHERE s.products_reported = p.n;"
+      ]
+    },
+    {
+      "displayName": "q4_prices",
+      "name": "c015c51e",
+      "queryLines": [
+        "WITH prices AS (\n",
+        "  SELECT d.date, g.grade_name, s.price_type, a.area_bk, f.price\n",
+        "  FROM fact_periodic_price_weekly f\n",
+        "  JOIN dim_date d ON f.date_sk = d.date_sk\n",
+        "  JOIN dim_fuel_grade g ON f.grade_sk = g.grade_sk\n",
+        "  JOIN dim_status s ON f.status_sk = s.status_sk\n",
+        "  JOIN dim_area a ON f.area_sk = a.area_sk\n",
+        "  WHERE g.grade_bk IN ('REGULAR', 'ULSD')\n",
+        "    AND f.price IS NOT NULL\n",
+        "),\n",
+        "weekly AS (\n",
+        "  SELECT\n",
+        "    date,\n",
+        "    grade_name,\n",
+        "    AVG(CASE WHEN price_type = 'retail' AND area_bk = 'NUS' THEN price END) AS retail_usd_gal,\n",
+        "    AVG(CASE WHEN price_type = 'spot' THEN price END) AS spot_usd_gal\n",
+        "  FROM prices\n",
+        "  GROUP BY date, grade_name\n",
+        "),\n",
+        "changes AS (\n",
+        "  SELECT\n",
+        "    *,\n",
+        "    retail_usd_gal - spot_usd_gal AS spread_usd_gal,\n",
+        "    try_divide(\n",
+        "      retail_usd_gal - LAG(retail_usd_gal) OVER (PARTITION BY grade_name ORDER BY date),\n",
+        "      LAG(retail_usd_gal) OVER (PARTITION BY grade_name ORDER BY date)\n",
+        "    ) AS weekly_change\n",
+        "  FROM weekly\n",
+        "  WHERE retail_usd_gal IS NOT NULL\n",
+        ")\n",
+        "SELECT\n",
+        "  *,\n",
+        "  STDDEV(weekly_change) OVER (\n",
+        "    PARTITION BY grade_name ORDER BY date ROWS BETWEEN 12 PRECEDING AND CURRENT ROW\n",
+        "  ) AS volatility_13w\n",
+        "FROM changes;"
+      ]
+    },
+    {
+      "displayName": "q5_spend",
+      "name": "3210a433",
+      "queryLines": [
+        "WITH supply AS (\n",
+        "  SELECT d.date, p.product_name, p.representative_grade_bk, f.rate_kbd\n",
+        "  FROM fact_periodic_supply_weekly f\n",
+        "  JOIN dim_date d ON f.date_sk = d.date_sk\n",
+        "  JOIN dim_product p ON f.product_sk = p.product_sk\n",
+        "  JOIN dim_area a ON f.area_sk = a.area_sk\n",
+        "  WHERE a.area_bk = 'NUS'\n",
+        "    AND p.representative_grade_bk IS NOT NULL\n",
+        "    AND f.rate_kbd IS NOT NULL\n",
+        "),\n",
+        "retail AS (\n",
+        "  SELECT d.date, g.grade_bk, f.price\n",
+        "  FROM fact_periodic_price_weekly f\n",
+        "  JOIN dim_date d ON f.date_sk = d.date_sk\n",
+        "  JOIN dim_fuel_grade g ON f.grade_sk = g.grade_sk\n",
+        "  JOIN dim_status s ON f.status_sk = s.status_sk\n",
+        "  JOIN dim_area a ON f.area_sk = a.area_sk\n",
+        "  WHERE s.price_type = 'retail'\n",
+        "    AND a.area_bk = 'NUS'\n",
+        "    AND f.price IS NOT NULL\n",
+        ")\n",
+        "SELECT\n",
+        "  s.date,\n",
+        "  s.product_name,\n",
+        "  s.rate_kbd,\n",
+        "  r.price AS retail_usd_gal,\n",
+        "  s.rate_kbd * 1000 * 42 * 7 * r.price / 1e9 AS spend_bn_usd\n",
+        "FROM supply s\n",
+        "JOIN retail r\n",
+        "  ON r.date = s.date\n",
+        " AND r.grade_bk = s.representative_grade_bk;"
+      ]
+    },
+    {
+      "displayName": "q5_latest",
+      "name": "4317619b",
+      "queryLines": [
+        "WITH supply AS (\n",
+        "  SELECT d.date, p.representative_grade_bk, f.rate_kbd\n",
+        "  FROM fact_periodic_supply_weekly f\n",
+        "  JOIN dim_date d ON f.date_sk = d.date_sk\n",
+        "  JOIN dim_product p ON f.product_sk = p.product_sk\n",
+        "  JOIN dim_area a ON f.area_sk = a.area_sk\n",
+        "  WHERE a.area_bk = 'NUS'\n",
+        "    AND p.representative_grade_bk IS NOT NULL\n",
+        "    AND f.rate_kbd IS NOT NULL\n",
+        "),\n",
+        "retail AS (\n",
+        "  SELECT d.date, g.grade_bk, f.price\n",
+        "  FROM fact_periodic_price_weekly f\n",
+        "  JOIN dim_date d ON f.date_sk = d.date_sk\n",
+        "  JOIN dim_fuel_grade g ON f.grade_sk = g.grade_sk\n",
+        "  JOIN dim_status s ON f.status_sk = s.status_sk\n",
+        "  JOIN dim_area a ON f.area_sk = a.area_sk\n",
+        "  WHERE s.price_type = 'retail'\n",
+        "    AND a.area_bk = 'NUS'\n",
+        "    AND f.price IS NOT NULL\n",
+        "),\n",
+        "spend AS (\n",
+        "  SELECT s.date, s.representative_grade_bk AS grade_bk, s.rate_kbd * 1000 * 42 * 7 * r.price AS spend_usd\n",
+        "  FROM supply s\n",
+        "  JOIN retail r ON r.date = s.date AND r.grade_bk = s.representative_grade_bk\n",
+        "),\n",
+        "latest AS (\n",
+        "  SELECT MAX(date) AS week FROM spend\n",
+        ")\n",
+        "SELECT\n",
+        "  l.week,\n",
+        "  SUM(CASE WHEN s.grade_bk = 'GASOLINE' THEN s.spend_usd END) AS gasoline_usd,\n",
+        "  SUM(CASE WHEN s.grade_bk = 'ULSD' THEN s.spend_usd END) AS diesel_usd,\n",
+        "  SUM(s.spend_usd) AS total_usd\n",
+        "FROM spend s\n",
+        "JOIN latest l ON s.date = l.week\n",
+        "GROUP BY l.week;"
+      ]
+    },
+    {
+      "displayName": "q6_regional",
+      "name": "82325326",
+      "queryLines": [
+        "WITH retail AS (\n",
+        "  SELECT\n",
+        "    d.date,\n",
+        "    g.grade_bk,\n",
+        "    g.grade_name,\n",
+        "    a.area_name,\n",
+        "    a.area_level,\n",
+        "    f.price\n",
+        "  FROM fact_periodic_price_weekly f\n",
+        "  JOIN dim_date d       ON f.date_sk  = d.date_sk\n",
+        "  JOIN dim_fuel_grade g ON f.grade_sk = g.grade_sk\n",
+        "  JOIN dim_area a       ON f.area_sk  = a.area_sk\n",
+        "  WHERE f.hub_sk = -2\n",
+        "    AND g.grade_bk IN ('REGULAR', 'ULSD')\n",
+        "    AND a.area_level IN ('country', 'region')\n",
+        ")\n",
+        "SELECT\n",
+        "  r.date,\n",
+        "  r.grade_name,\n",
+        "  r.area_name                         AS region,\n",
+        "  r.price                             AS region_price,\n",
+        "  u.price                             AS us_price,\n",
+        "  r.price - u.price                   AS gap,\n",
+        "  try_divide(r.price - u.price, u.price) AS gap_pct\n",
+        "FROM retail r\n",
+        "JOIN retail u\n",
+        "  ON  u.date        = r.date\n",
+        "  AND u.grade_bk    = r.grade_bk\n",
+        "  AND u.area_level  = 'country'\n",
+        "WHERE r.area_level = 'region';"
+      ]
+    },
+    {
+      "displayName": "q6_latest",
+      "name": "95a174f0",
+      "queryLines": [
+        "WITH retail AS (\n",
+        "  SELECT d.date, g.grade_bk, g.grade_name, a.area_name, a.area_level, f.price\n",
+        "  FROM fact_periodic_price_weekly f\n",
+        "  JOIN dim_date d       ON f.date_sk  = d.date_sk\n",
+        "  JOIN dim_fuel_grade g ON f.grade_sk = g.grade_sk\n",
+        "  JOIN dim_area a       ON f.area_sk  = a.area_sk\n",
+        "  WHERE f.hub_sk = -2\n",
+        "    AND g.grade_bk IN ('REGULAR', 'ULSD')\n",
+        "    AND a.area_level IN ('country', 'region')\n",
+        ")\n",
+        "SELECT\n",
+        "  r.date                  AS week,\n",
+        "  r.grade_name,\n",
+        "  r.area_name             AS region,\n",
+        "  r.price - u.price       AS gap\n",
+        "FROM retail r\n",
+        "JOIN retail u\n",
+        "  ON  u.date = r.date\n",
+        "  AND u.grade_bk = r.grade_bk\n",
+        "  AND u.area_level = 'country'\n",
+        "WHERE r.area_level = 'region'\n",
+        "  AND r.date = (SELECT MAX(date) FROM retail);"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "displayName": "Market",
+      "layout": [
+        {
+          "position": {
+            "height": 4,
+            "width": 3,
+            "x": 0,
+            "y": 0
+          },
+          "widget": {
+            "name": "week-ending",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f164c4c3",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "expression": "`week`",
+                      "name": "week"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "week"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">Week ending</span>"
+                }
+              },
+              "style": {
+                "fontColor": {
+                  "light": "#F0EFEC"
+                }
+              },
+              "version": 2,
+              "widgetType": "counter"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 4,
+            "width": 3,
+            "x": 3,
+            "y": 0
+          },
+          "widget": {
+            "name": "us-supply-thousand-barrels-day",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f164c4c3",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "SUM(`latest_kbd`)",
+                      "name": "sum(latest_kbd)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(latest_kbd)",
+                  "format": {
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "places": 0,
+                      "type": "max"
+                    },
+                    "type": "number-plain"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">U.S. supply, thousand barrels/day</span>"
+                }
+              },
+              "style": {
+                "fontColor": {
+                  "light": "#F0EFEC"
+                }
+              },
+              "version": 2,
+              "widgetType": "counter"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 4,
+            "width": 3,
+            "x": 6,
+            "y": 0
+          },
+          "widget": {
+            "name": "vs-previous-week",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f164c4c3",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "SUM(`wow_pct`)",
+                      "name": "sum(wow_pct)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(wow_pct)",
+                  "format": {
+                    "decimalPlaces": {
+                      "places": 2,
+                      "type": "max"
+                    },
+                    "type": "number-percent"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">vs previous week</span>"
+                }
+              },
+              "style": {
+                "fontColor": {
+                  "light": "#F0EFEC"
+                }
+              },
+              "version": 2,
+              "widgetType": "counter"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 4,
+            "width": 3,
+            "x": 9,
+            "y": 0
+          },
+          "widget": {
+            "name": "vs-same-week-last-year",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f164c4c3",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "SUM(`yoy_pct`)",
+                      "name": "sum(yoy_pct)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(yoy_pct)",
+                  "format": {
+                    "decimalPlaces": {
+                      "places": 2,
+                      "type": "max"
+                    },
+                    "type": "number-percent"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">vs same week last year</span>"
+                }
+              },
+              "style": {
+                "fontColor": {
+                  "light": "#F0EFEC"
+                }
+              },
+              "version": 2,
+              "widgetType": "counter"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 6,
+            "width": 12,
+            "x": 0,
+            "y": 4
+          },
+          "widget": {
+            "name": "how-much-product-us-consume-this-week",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f01250f2",
+                  "disaggregated": true,
+                  "fields": [
+                    {
+                      "expression": "`product_name`",
+                      "name": "product_name"
+                    },
+                    {
+                      "expression": "`latest_kbd`",
+                      "name": "latest_kbd"
+                    },
+                    {
+                      "expression": "`prev_week_kbd`",
+                      "name": "prev_week_kbd"
+                    },
+                    {
+                      "expression": "`last_year_kbd`",
+                      "name": "last_year_kbd"
+                    },
+                    {
+                      "expression": "`wow_pct`",
+                      "name": "wow_pct"
+                    },
+                    {
+                      "expression": "`yoy_pct`",
+                      "name": "yoy_pct"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "columns": [
+                  {
+                    "displayName": "Product",
+                    "fieldName": "product_name"
+                  },
+                  {
+                    "displayName": "Latest, kb/d",
+                    "fieldName": "latest_kbd",
+                    "format": {
+                      "abbreviation": "none",
+                      "decimalPlaces": {
+                        "places": 0,
+                        "type": "exact"
+                      },
+                      "hideGroupSeparator": true,
+                      "type": "number-plain"
+                    }
+                  },
+                  {
+                    "displayName": "Previous week",
+                    "fieldName": "prev_week_kbd"
+                  },
+                  {
+                    "displayName": "Same week last year",
+                    "fieldName": "last_year_kbd"
+                  },
+                  {
+                    "displayName": "WoW",
+                    "fieldName": "wow_pct",
+                    "format": {
+                      "decimalPlaces": {
+                        "places": 1,
+                        "type": "exact"
+                      },
+                      "hideGroupSeparator": true,
+                      "type": "number-percent"
+                    }
+                  },
+                  {
+                    "displayName": "YoY",
+                    "fieldName": "yoy_pct",
+                    "format": {
+                      "decimalPlaces": {
+                        "places": 1,
+                        "type": "exact"
+                      },
+                      "hideGroupSeparator": true,
+                      "type": "number-percent"
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">How much of each product did the U.S. consume this week?</span>"
+                }
+              },
+              "style": {
+                "fontColor": {
+                  "light": "#F0EFEC"
+                }
+              },
+              "version": 2,
+              "widgetType": "table"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 7,
+            "width": 12,
+            "x": 0,
+            "y": 10
+          },
+          "widget": {
+            "name": "how-seasonal-is-demand-for-each-product",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "1f6dc02c",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "AVG(`seasonal_index`)",
+                      "name": "avg(seasonal_index)"
+                    },
+                    {
+                      "expression": "`month_label`",
+                      "name": "month_label"
+                    },
+                    {
+                      "expression": "`product_name`",
+                      "name": "product_name"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "color": {
+                  "displayName": " Seasonal index",
+                  "fieldName": "avg(seasonal_index)",
+                  "scale": {
+                    "colorRamp": {
+                      "colors": {
+                        "end": "#8A5A14",
+                        "start": "#FDE4A3"
+                      },
+                      "mode": "custom-sequential"
+                    },
+                    "type": "quantitative"
+                  }
+                },
+                "x": {
+                  "displayName": " ",
+                  "fieldName": "month_label",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "displayName": " ",
+                  "fieldName": "product_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "frame": {
+                "description": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 14px;\">Average week as % of its year's average (100 = a typical week). Darker = higher demand.</span>"
+                },
+                "showDescription": true,
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">How seasonal is demand for each product?</span>"
+                }
+              },
+              "style": {
+                "fontColor": {
+                  "light": "#F0EFEC"
+                }
+              },
+              "version": 3,
+              "widgetType": "heatmap"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 6,
+            "width": 6,
+            "x": 0,
+            "y": 17
+          },
+          "widget": {
+            "name": "has-demand-recovered-to-2019-level",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "b0cde737",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "`year`",
+                      "name": "year"
+                    },
+                    {
+                      "expression": "AVG(`pct_of_2019`)",
+                      "name": "avg(pct_of_2019)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "x": {
+                  "displayName": " ",
+                  "fieldName": "year",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "displayName": " ",
+                  "fieldName": "avg(pct_of_2019)",
+                  "format": {
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "places": 2,
+                      "type": "max"
+                    },
+                    "type": "number-plain"
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">Has demand recovered to the 2019 level?</span>"
+                }
+              },
+              "version": 3,
+              "widgetType": "line"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 6,
+            "width": 6,
+            "x": 6,
+            "y": 17
+          },
+          "widget": {
+            "name": "how-product-mix-shifting",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a49bce5e",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "`product_name`",
+                      "name": "product_name"
+                    },
+                    {
+                      "expression": "`year`",
+                      "name": "year"
+                    },
+                    {
+                      "expression": "AVG(`share`)",
+                      "name": "avg(share)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "color": {
+                  "fieldName": "product_name",
+                  "scale": {
+                    "mappings": [],
+                    "type": "categorical"
+                  }
+                },
+                "label": {
+                  "show": false
+                },
+                "x": {
+                  "fieldName": "year",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "avg(share)",
+                  "format": {
+                    "decimalPlaces": {
+                      "places": 0,
+                      "type": "max"
+                    },
+                    "type": "number-percent"
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">How is the product mix shifting?</span>"
+                }
+              },
+              "version": 3,
+              "widgetType": "bar"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 7,
+            "width": 12,
+            "x": 0,
+            "y": 23
+          },
+          "widget": {
+            "name": "how-did-retail-prices-move",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "c015c51e",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "`grade_name`",
+                      "name": "grade_name"
+                    },
+                    {
+                      "expression": "DATE_TRUNC(\"MONTH\", `date`)",
+                      "name": "monthly(date)"
+                    },
+                    {
+                      "expression": "AVG(`retail_usd_gal`)",
+                      "name": "avg(retail_usd_gal)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "color": {
+                  "displayName": "Grade",
+                  "fieldName": "grade_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "displayName": " ",
+                  "fieldName": "monthly(date)",
+                  "format": {
+                    "date": "locale-number-month-full-year",
+                    "type": "date"
+                  },
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "displayName": "$/gal",
+                  "fieldName": "avg(retail_usd_gal)",
+                  "format": {
+                    "abbreviation": "compact",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "places": 2,
+                      "type": "max"
+                    },
+                    "type": "number-currency"
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "description": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 14px;\">Average U.S. retail price, $ per gallon, weekly.</span>"
+                },
+                "showDescription": true,
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">How did retail prices move?</span>"
+                }
+              },
+              "version": 3,
+              "widgetType": "line"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 6,
+            "width": 12,
+            "x": 0,
+            "y": 30
+          },
+          "widget": {
+            "name": "how-volatile-are-prices",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "c015c51e",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "`grade_name`",
+                      "name": "grade_name"
+                    },
+                    {
+                      "expression": "DATE_TRUNC(\"MONTH\", `date`)",
+                      "name": "monthly(date)"
+                    },
+                    {
+                      "expression": "AVG(`volatility_13w`)",
+                      "name": "avg(volatility_13w)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "color": {
+                  "displayName": "Grade",
+                  "fieldName": "grade_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "fieldName": "monthly(date)",
+                  "format": {
+                    "date": "locale-number-month-full-year",
+                    "type": "date"
+                  },
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "displayName": " ",
+                  "fieldName": "avg(volatility_13w)",
+                  "format": {
+                    "decimalPlaces": {
+                      "places": 1,
+                      "type": "max"
+                    },
+                    "type": "number-percent"
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">How volatile are prices?</span>"
+                }
+              },
+              "version": 3,
+              "widgetType": "line"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 6,
+            "width": 12,
+            "x": 0,
+            "y": 36
+          },
+          "widget": {
+            "name": "what-is-retail-spot-spread",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "c015c51e",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "`grade_name`",
+                      "name": "grade_name"
+                    },
+                    {
+                      "expression": "DATE_TRUNC(\"MONTH\", `date`)",
+                      "name": "monthly(date)"
+                    },
+                    {
+                      "expression": "AVG(`spread_usd_gal`)",
+                      "name": "avg(spread_usd_gal)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "color": {
+                  "displayName": "Grade",
+                  "fieldName": "grade_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "displayName": " ",
+                  "fieldName": "monthly(date)",
+                  "format": {
+                    "date": "locale-number-month-full-year",
+                    "type": "date"
+                  },
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "displayName": " ",
+                  "fieldName": "avg(spread_usd_gal)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">What is the retail–spot spread?</span>"
+                }
+              },
+              "version": 3,
+              "widgetType": "line"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 6,
+            "width": 4,
+            "x": 0,
+            "y": 42
+          },
+          "widget": {
+            "name": "gasoline-spend-last-week",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "4317619b",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "SUM(`gasoline_usd`)",
+                      "name": "sum(gasoline_usd)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(gasoline_usd)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">Gasoline spend, last week</span>"
+                }
+              },
+              "version": 2,
+              "widgetType": "counter"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 6,
+            "width": 4,
+            "x": 4,
+            "y": 42
+          },
+          "widget": {
+            "name": "diesel-spend-last-week-1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "4317619b",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "SUM(`diesel_usd`)",
+                      "name": "sum(diesel_usd)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(diesel_usd)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">Diesel spend, last week</span>"
+                }
+              },
+              "version": 2,
+              "widgetType": "counter"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 6,
+            "width": 4,
+            "x": 8,
+            "y": 42
+          },
+          "widget": {
+            "name": "total-last-week",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "4317619b",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "SUM(`total_usd`)",
+                      "name": "sum(total_usd)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(total_usd)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">Total, last week</span>"
+                }
+              },
+              "version": 2,
+              "widgetType": "counter"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 6,
+            "width": 12,
+            "x": 0,
+            "y": 48
+          },
+          "widget": {
+            "name": "estimated-weekly-us-spend-gasoline-diesel",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "3210a433",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "`product_name`",
+                      "name": "product_name"
+                    },
+                    {
+                      "expression": "DATE_TRUNC(\"MONTH\", `date`)",
+                      "name": "monthly(date)"
+                    },
+                    {
+                      "expression": "AVG(`spend_bn_usd`)",
+                      "name": "avg(spend_bn_usd)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "color": {
+                  "fieldName": "product_name",
+                  "scale": {
+                    "mappings": [
+                      {
+                        "color": "#C97F0E",
+                        "value": "Distillate fuel oil"
+                      }
+                    ],
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "displayName": " ",
+                  "fieldName": "monthly(date)",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "displayName": " ",
+                  "fieldName": "avg(spend_bn_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">What is the estimated weekly U.S. spend on gasoline and diesel?</span>"
+                }
+              },
+              "version": 3,
+              "widgetType": "line"
+            }
+          }
+        }
+      ],
+      "layoutVersion": "GRID_V1",
+      "name": "d927ba9b",
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "displayName": "Regional",
+      "layout": [
+        {
+          "position": {
+            "height": 7,
+            "width": 12,
+            "x": 0,
+            "y": 0
+          },
+          "widget": {
+            "name": "how-do-regional-retail-prices-compare-to-us-average",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "82325326",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "DATE_TRUNC(\"MONTH\", `date`)",
+                      "name": "monthly(date)"
+                    },
+                    {
+                      "expression": "AVG(`region_price`)",
+                      "name": "avg(region_price)"
+                    },
+                    {
+                      "expression": "AVG(`us_price`)",
+                      "name": "avg(us_price)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "x": {
+                  "displayName": " ",
+                  "fieldName": "monthly(date)",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "axis": {
+                    "title": "$ per gallon"
+                  },
+                  "fields": [
+                    {
+                      "displayName": "Selected region",
+                      "fieldName": "avg(region_price)"
+                    },
+                    {
+                      "displayName": "U.S. average",
+                      "fieldName": "avg(us_price)"
+                    }
+                  ],
+                  "format": {
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "places": 2,
+                      "type": "max"
+                    },
+                    "type": "number-plain"
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "description": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 14px;\">Monthly average retail price. Use the Region and Fuel filters above.</span>"
+                },
+                "showDescription": true,
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">How do regional retail prices compare to the U.S. average?</span>"
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#F7C948",
+                  "#9AA3C7"
+                ]
+              },
+              "version": 3,
+              "widgetType": "line"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 7,
+            "width": 12,
+            "x": 0,
+            "y": 7
+          },
+          "widget": {
+            "name": "how-far-each-region-from-us-average-this-week",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "95a174f0",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "SUM(`gap`)",
+                      "name": "sum(gap)"
+                    },
+                    {
+                      "expression": "`region`",
+                      "name": "region"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "label": {
+                  "show": true,
+                  "text": {
+                    "fieldName": "sum(gap)",
+                    "format": {
+                      "abbreviation": "compact",
+                      "currencyCode": "USD",
+                      "decimalPlaces": {
+                        "places": 2,
+                        "type": "max"
+                      },
+                      "type": "number-currency"
+                    }
+                  }
+                },
+                "x": {
+                  "displayName": " ",
+                  "fieldName": "region",
+                  "scale": {
+                    "sort": {
+                      "by": "y-reversed"
+                    },
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "displayName": " ",
+                  "fieldName": "sum(gap)",
+                  "format": {
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "places": 2,
+                      "type": "max"
+                    },
+                    "type": "number-plain"
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "<span style=\"font-size: 24px;\">How far is each region from the U.S. average this week?</span>"
+                }
+              },
+              "version": 3,
+              "widgetType": "bar"
+            }
+          }
+        }
+      ],
+      "layoutVersion": "GRID_V1",
+      "name": "16ac5748",
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "displayName": "Global Filters",
+      "layout": [
+        {
+          "position": {
+            "height": 2,
+            "width": 1,
+            "x": 0,
+            "y": 0
+          },
+          "widget": {
+            "name": "period",
+            "queries": [
+              {
+                "name": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e5ef17ae1307a9de452eb1cc7ef2_date",
+                "query": {
+                  "datasetName": "b0cde737",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "`date`",
+                      "name": "date"
+                    },
+                    {
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)",
+                      "name": "date_associativity"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e65fd11d11829dfc4003e63dc658_date",
+                "query": {
+                  "datasetName": "c015c51e",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "`date`",
+                      "name": "date"
+                    },
+                    {
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)",
+                      "name": "date_associativity"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e663282314fa92d83865d4742b7e_date",
+                "query": {
+                  "datasetName": "3210a433",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "`date`",
+                      "name": "date"
+                    },
+                    {
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)",
+                      "name": "date_associativity"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "date",
+                    "queryName": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e5ef17ae1307a9de452eb1cc7ef2_date"
+                  },
+                  {
+                    "fieldName": "date",
+                    "queryName": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e65fd11d11829dfc4003e63dc658_date"
+                  },
+                  {
+                    "fieldName": "date",
+                    "queryName": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e663282314fa92d83865d4742b7e_date"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "**`Period`**"
+                }
+              },
+              "selection": {
+                "defaultSelection": {
+                  "range": {
+                    "dataType": "DATE",
+                    "max": {
+                      "value": "now/y"
+                    },
+                    "min": {
+                      "value": "now-1y/y"
+                    }
+                  }
+                }
+              },
+              "version": 2,
+              "widgetType": "filter-date-range-picker"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 2,
+            "width": 1,
+            "x": 0,
+            "y": 2
+          },
+          "widget": {
+            "name": "product",
+            "queries": [
+              {
+                "name": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e5ef27121fd5a52bfa5dcc7878fd_product_name",
+                "query": {
+                  "datasetName": "a49bce5e",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "`product_name`",
+                      "name": "product_name"
+                    },
+                    {
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)",
+                      "name": "product_name_associativity"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e5ec66881fd0802ceb5848669442_product_name",
+                "query": {
+                  "datasetName": "1f6dc02c",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "`product_name`",
+                      "name": "product_name"
+                    },
+                    {
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)",
+                      "name": "product_name_associativity"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "product_name",
+                    "queryName": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e5ef27121fd5a52bfa5dcc7878fd_product_name"
+                  },
+                  {
+                    "fieldName": "product_name",
+                    "queryName": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e5ec66881fd0802ceb5848669442_product_name"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "**`Product`**"
+                }
+              },
+              "version": 2,
+              "widgetType": "filter-multi-select"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 2,
+            "width": 1,
+            "x": 0,
+            "y": 4
+          },
+          "widget": {
+            "name": "region",
+            "queries": [
+              {
+                "name": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e6633de51f7fb622faa58fda70a8_region",
+                "query": {
+                  "datasetName": "82325326",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "`region`",
+                      "name": "region"
+                    },
+                    {
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)",
+                      "name": "region_associativity"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "region",
+                    "queryName": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e6633de51f7fb622faa58fda70a8_region"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "Region"
+                }
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "STRING",
+                    "values": [
+                      {
+                        "value": "PADD 5 (West Coast)"
+                      }
+                    ]
+                  }
+                }
+              },
+              "version": 2,
+              "widgetType": "filter-single-select"
+            }
+          }
+        },
+        {
+          "position": {
+            "height": 2,
+            "width": 1,
+            "x": 0,
+            "y": 6
+          },
+          "widget": {
+            "name": "fuel",
+            "queries": [
+              {
+                "name": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e6633de51f7fb622faa58fda70a8_grade_name",
+                "query": {
+                  "datasetName": "82325326",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "`grade_name`",
+                      "name": "grade_name"
+                    },
+                    {
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)",
+                      "name": "grade_name_associativity"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e66b28221fd8a045d640a9d86ff0_grade_name",
+                "query": {
+                  "datasetName": "95a174f0",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "expression": "`grade_name`",
+                      "name": "grade_name"
+                    },
+                    {
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)",
+                      "name": "grade_name_associativity"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "grade_name",
+                    "queryName": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e6633de51f7fb622faa58fda70a8_grade_name"
+                  },
+                  {
+                    "fieldName": "grade_name",
+                    "queryName": "dashboards/01f1e5e4384f1da3be60ecbcfc821eb4/datasets/01f1e66b28221fd8a045d640a9d86ff0_grade_name"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "fields": [],
+                  "value": "Fuel"
+                }
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "STRING",
+                    "values": [
+                      {
+                        "value": "Regular gasoline"
+                      }
+                    ]
+                  }
+                }
+              },
+              "version": 2,
+              "widgetType": "filter-single-select"
+            }
+          }
+        }
+      ],
+      "layoutVersion": "GRID_V1",
+      "name": "bed4e82a",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS"
+    }
+  ],
+  "uiSettings": {
+    "applyModeEnabled": false,
+    "theme": {
+      "axisLineColor": {
+        "light": "#C3C2B7"
+      },
+      "canvasBackgroundColor": {
+        "dark": "#1F272D",
+        "light": "#10183A"
+      },
+      "continuousGradient": {
+        "darkMode": {
+          "customSequential": {
+            "end": "#8A5A14",
+            "start": "#FDE4A3"
+          }
+        },
+        "lightMode": {
+          "customSequential": {
+            "end": "#8A5A14",
+            "start": "#FDE4A3"
+          }
+        }
+      },
+      "fontColor": {
+        "dark": "#E8ECF0",
+        "light": "#F0EFEC"
+      },
+      "fontSettings": {
+        "base": {
+          "fontColor": {
+            "dark": "#E8ECF0",
+            "light": "#F0EFEC"
+          }
+        },
+        "fieldTitle": {
+          "fontColor": {
+            "light": "#C3C2B7"
+          }
+        },
+        "widgetDescription": {
+          "fontColor": {
+            "light": "#C3C2B7"
+          }
+        },
+        "widgetTitle": {
+          "fontColor": {
+            "light": "#F0EFEC"
+          }
+        }
+      },
+      "gridLineColor": {
+        "light": "#2C3766"
+      },
+      "selectionColor": {
+        "dark": "#8ACAFF",
+        "light": "#F7C948"
+      },
+      "visualizationColorMappings": [
+        {
+          "color": "#FDE4A3",
+          "value": "Finished motor gasoline"
+        },
+        {
+          "color": "#F7C948",
+          "value": "Distillate fuel oil"
+        },
+        {
+          "color": "#E8A317",
+          "value": "Kerosene-type jet fuel"
+        },
+        {
+          "color": "#C97F0E",
+          "value": "Propane/propylene"
+        },
+        {
+          "color": "#A86C12",
+          "value": "Residual fuel oil"
+        },
+        {
+          "color": "#8A5A14",
+          "value": "Other oils"
+        },
+        {
+          "color": "#FDE4A3",
+          "value": "Regular gasoline"
+        },
+        {
+          "color": "#C97F0E",
+          "value": "Ultra-low sulfur diesel"
+        }
+      ],
+      "visualizationColors": [
+        "#FDE4A3",
+        "#F7C948",
+        "#E8A317",
+        "#C97F0E",
+        "#A86C12",
+        "#8A5A14"
+      ],
+      "widgetBackgroundColor": {
+        "dark": "#11171C",
+        "light": "#1B2550"
+      },
+      "widgetBorderColor": {
+        "light": "#2C3766"
+      },
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}
