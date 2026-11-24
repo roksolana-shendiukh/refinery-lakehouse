@@ -26,7 +26,10 @@ def parse_args():
     parser.add_argument("--index-name", required=True)
     parser.add_argument("--llm-endpoint", required=True)
     parser.add_argument("--experiment", required=True, help="MLflow experiment path")
-    parser.add_argument("--judge-model", default="", help="Judge endpoint, e.g. databricks:/...; empty = built-in")
+    # Never empty: the Terraform provider turns an empty job parameter into null and fails to create the job
+    parser.add_argument(
+        "--judge-model", default="built-in", help="Judge endpoint, e.g. databricks:/...; built-in = Databricks-hosted"
+    )
     parser.add_argument("--search-results", type=int, default=5)
     parser.add_argument("--max-iterations", type=int, default=3)
     # The pay-per-token model has a per-workspace QPS limit; MLflow answers 10 questions at once by default
@@ -47,6 +50,7 @@ def require_index(client, index_name):
 def evaluate(args):
     # Read by mlflow.genai.evaluate when it starts answering the questions
     os.environ["MLFLOW_GENAI_EVAL_MAX_WORKERS"] = str(args.max_workers)
+    judge_model = None if args.judge_model == "built-in" else args.judge_model
     # The assistant package comes from the app folder, not the project wheel: import it once that folder is known
     sys.path.insert(0, args.app_dir)
     from assistant.agent import Agent, WorkspaceModels
@@ -89,14 +93,14 @@ def evaluate(args):
                     "search_results": args.search_results,
                     "max_iterations": args.max_iterations,
                     "max_workers": args.max_workers,
-                    "judge_model": args.judge_model or "built-in",
+                    "judge_model": args.judge_model,
                     "questions": len(questions),
                 }
             )
             result = mlflow.genai.evaluate(
                 data=data,
                 predict_fn=predict,
-                scorers=build_scorers(with_search=mode == "with_search", judge_model=args.judge_model or None),
+                scorers=build_scorers(with_search=mode == "with_search", judge_model=judge_model),
             )
             logger.info("%s (run %s): %s", mode, run.info.run_id, result.metrics)
 
