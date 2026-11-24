@@ -138,16 +138,19 @@ class WorkspaceModels:
     """OpenAI-compatible client for the workspace's model serving endpoints, with a fresh token for every request.
 
     The app's service principal gets OAuth tokens that expire; config.authenticate() renews them when needed.
+    max_retries: retries of 429 and 5xx with exponential backoff (the OpenAI client's default is 2).
     """
 
-    def __init__(self, workspace_client):
+    def __init__(self, workspace_client, max_retries=2):
         self.workspace_client = workspace_client
+        self.max_retries = max_retries
 
     @property
     def chat(self):
         config = self.workspace_client.config
         token = config.authenticate()["Authorization"].removeprefix("Bearer ")
-        return OpenAI(base_url=f"{config.host.rstrip('/')}/serving-endpoints", api_key=token).chat
+        base_url = f"{config.host.rstrip('/')}/serving-endpoints"
+        return OpenAI(base_url=base_url, api_key=token, max_retries=self.max_retries).chat
 
 
 def build_agent(settings, workspace_client):

@@ -1,0 +1,301 @@
+import datetime
+import json
+from contextlib import contextmanager
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from assistant.agent import ERROR_ANSWER
+from assistant.evaluation import (
+    RETRIEVER_SPAN,
+    AnswerFailed,
+    EvalQuestion,
+    EvalQuestionsError,
+    NoSearchAssistant,
+    TracedSearch,
+    answer_fn,
+    cites_expected_source,
+    eval_records,
+    load_questions,
+    refused_correctly,
+    retriever_documents,
+)
+from assistant.prompts import REFUSAL
+from assistant.retrieval import Chunk
+
+QUESTIONS_FILE = Path(__file__).parents[2] / "data" / "rag" / "eval_questions.json"
+STEO_URL = "https://www.eia.gov/outlooks/steo/report/global_oil.php"
+
+
+def write_questions(tmp_path, questions):
+    path = tmp_path / "questions.json"
+    path.write_text(json.dumps(questions), encoding="utf-8")
+    return path
+
+
+# Questions
+
+
+def test_repository_questions_are_valid_and_cover_every_kind():
+    questions = load_questions(QUESTIONS_FILE)
+
+    categories = {question.category for question in questions}
+    assert categories == {"outlook", "article", "multi_source", "out_of_scope", "injection"}
+    assert any(question.should_refuse for question in questions)
+    for question in questions:
+        for url in question.expected_sources:
+            assert url.startswith("https://www.eia.gov/"), url
+
+
+def test_question_without_facts_is_rejected(tmp_path):
+    path = write_questions(
+        tmp_path, [{"id": "q1", "question": "Brent?", "category": "outlook", "expected_sources": [STEO_URL]}]
+    )
+
+    with pytest.raises(EvalQuestionsError, match="has no expected_facts"):
+        load_questions(path)
+
+
+def test_answered_question_must_name_a_source(tmp_path):
+    path = write_questions(
+        tmp_path, [{"id": "q1", "question": "Brent?", "category": "outlook", "expected_facts": ["$97/b"]}]
+    )
+
+    with pytest.raises(EvalQuestionsError, match="no source to cite"):
+        load_questions(path)
+
+
+def test_refused_question_cannot_expect_sources(tmp_path):
+    path = write_questions(
+        tmp_path,
+        [
+            {
+                "id": "q1",
+                "question": "Borscht?",
+                "category": "out_of_scope",
+                "should_refuse": True,
+                "expected_facts": ["Declines"],
+                "expected_sources": [STEO_URL],
+            }
+        ],
+    )
+
+    with pytest.raises(EvalQuestionsError, match="should be refused"):
+        load_questions(path)
+
+
+def test_duplicate_ids_are_rejected(tmp_path):
+    question = {
+        "id": "q1",
+        "question": "Brent?",
+        "category": "outlook",
+        "expected_facts": ["$97/b"],
+        "expected_sources": [STEO_URL],
+    }
+    path = write_questions(tmp_path, [question, question])
+
+    with pytest.raises(EvalQuestionsError, match="Duplicate question ids"):
+        load_questions(path)
+
+
+def test_missing_field_is_named(tmp_path):
+    path = write_questions(tmp_path, [{"id": "q1", "category": "outlook", "expected_facts": ["$97/b"]}])
+
+    with pytest.raises(EvalQuestionsError, match="has no question"):
+        load_questions(path)
+
+
+# Traced search
+
+CHUNK = Chunk(
+    chunk_id="steo-global-oil-0",
+    doc_id="steo-global-oil",
+    doc_type="outlook",
+    title="Short-Term Energy Outlook: Global oil markets",
+    published_date="2026-11-10",
+    source_url=STEO_URL,
+    text="Brent averages $97/b in 2026.",
+    score=0.82,
+)
+
+
+class FakeSpan:
+    def __init__(self, name, span_type):
+        self.name, self.span_type = name, span_type
+        self.inputs = self.outputs = None
+
+    def set_inputs(self, inputs):
+        self.inputs = inputs
+
+    def set_outputs(self, outputs):
+        self.outputs = outputs
+
+
+def span_recorder():
+    spans = []
+
+    @contextmanager
+    def start_span(name, span_type):
+        span = FakeSpan(name, span_type)
+        spans.append(span)
+        yield span
+
+    return spans, start_span
+
+
+def test_retrieved_chunks_become_documents_with_their_page():
+    (document,) = retriever_documents([CHUNK])
+
+    assert document["id"] == CHUNK.chunk_id
+    assert document["page_content"] == CHUNK.text
+    assert document["metadata"]["doc_uri"] == CHUNK.source_url
+    assert document["metadata"]["published_date"] == "2026-11-10"
+
+
+def test_every_search_is_a_retriever_span_and_the_agent_gets_the_chunks():
+    calls = []
+
+    def search(query, doc_type=None, since=None):
+        calls.append((query, doc_type, since))
+        return [CHUNK]
+
+    spans, start_span = span_recorder()
+    traced = TracedSearch(search, start_span)
+
+    chunks = traced("Brent forecast", doc_type="outlook", since=datetime.date(2026, 1, 1))
+
+    assert chunks == [CHUNK]
+    assert calls == [("Brent forecast", "outlook", datetime.date(2026, 1, 1))]
+    (span,) = spans
+    assert (span.name, span.span_type) == ("search_articles", RETRIEVER_SPAN)
+    assert span.inputs == {"query": "Brent forecast", "doc_type": "outlook", "since": "2026-01-01"}
+    assert span.outputs == retriever_documents([CHUNK])
+
+
+def test_empty_search_is_recorded_as_no_documents():
+    spans, start_span = span_recorder()
+
+    assert TracedSearch(lambda query, doc_type=None, since=None: [], start_span)("borscht") == []
+    assert spans[0].outputs == []
+
+
+# Baseline
+
+TODAY = datetime.date(2026, 11, 23)
+
+
+class FakeLLM:
+    def __init__(self, content="Brent averaged about $82/b in 2023.", error=None):
+        self.content, self.error = content, error
+        self.requests = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+    def create(self, **request):
+        self.requests.append(request)
+        if self.error:
+            raise self.error
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=self.content))],
+            usage=SimpleNamespace(prompt_tokens=120, completion_tokens=30),
+        )
+
+
+def ticking_clock():
+    times = iter([10.0, 11.5])
+    return lambda: next(times)
+
+
+def baseline(llm):
+    return NoSearchAssistant(llm, "llama", today=lambda: TODAY, clock=ticking_clock())
+
+
+def test_baseline_asks_the_same_model_once_without_tools():
+    llm = FakeLLM()
+
+    answer = baseline(llm).ask("What is the Brent forecast for 2026?")
+
+    (request,) = llm.requests
+    assert request["model"] == "llama"
+    assert request["temperature"] == 0
+    assert "tools" not in request
+    system, user = request["messages"]
+    assert "November 23, 2026" in system["content"]
+    assert REFUSAL in system["content"]
+    assert user == {"role": "user", "content": "What is the Brent forecast for 2026?"}
+    assert answer.answer == "Brent averaged about $82/b in 2023."
+    assert (answer.prompt_tokens, answer.completion_tokens, answer.latency_ms) == (120, 30, 1500)
+    assert (answer.sources, answer.chunks, answer.error) == ((), (), None)
+
+
+def test_empty_baseline_answer_counts_as_a_refusal():
+    assert baseline(FakeLLM(content="  ")).ask("Borscht?").answer == REFUSAL
+
+
+def test_failed_baseline_answer_is_kept_with_its_error():
+    answer = baseline(FakeLLM(error=TimeoutError("model timed out"))).ask("Brent?")
+
+    assert answer.answer == ERROR_ANSWER
+    assert answer.error == "TimeoutError: model timed out"
+
+
+# Scoring
+
+ANSWER = f"Brent averages about $97/b in 2026 [STEO]({STEO_URL})."
+ANSWERED = {"expected_sources": [STEO_URL], "should_refuse": False}
+REFUSED = {"expected_sources": [], "should_refuse": True}
+
+
+def test_records_give_the_question_to_the_assistant_and_the_rest_to_the_scorers():
+    question = EvalQuestion(
+        id="brent_forecast",
+        question="Brent?",
+        category="outlook",
+        expected_facts=("$97/b in 2026",),
+        expected_sources=(STEO_URL,),
+    )
+
+    (record,) = eval_records([question])
+
+    assert record["inputs"] == {"question": "Brent?"}
+    assert record["expectations"] == {
+        "expected_facts": ["$97/b in 2026"],
+        "expected_sources": [STEO_URL],
+        "should_refuse": False,
+        "question_id": "brent_forecast",
+        "category": "outlook",
+    }
+
+
+def test_refusal_is_right_only_when_expected():
+    assert refused_correctly(REFUSAL, REFUSED)
+    assert refused_correctly(ANSWER, ANSWERED)
+    assert not refused_correctly(ANSWER, REFUSED)  # answered what it should have refused
+    assert not refused_correctly(REFUSAL, ANSWERED)  # refused what it could answer
+
+
+def test_refusal_must_be_word_for_word():
+    assert not refused_correctly("Sorry, I cannot help with recipes.", REFUSED)
+
+
+def test_answer_must_cite_an_expected_page():
+    assert cites_expected_source(ANSWER, ANSWERED)
+    assert not cites_expected_source("Brent averages about $97/b in 2026.", ANSWERED)
+    assert not cites_expected_source("See [EIA](https://www.eia.gov/other).", ANSWERED)
+
+
+def test_refusal_cites_nothing():
+    assert cites_expected_source(REFUSAL, REFUSED)
+    assert not cites_expected_source(f"{REFUSAL} See [STEO]({STEO_URL}).", REFUSED)
+
+
+def test_evaluation_gets_the_answer_text_of_the_assistant():
+    assistant = baseline(FakeLLM(content="Brent averaged about $82/b in 2023."))
+
+    assert answer_fn(assistant)("Brent?") == "Brent averaged about $82/b in 2023."
+
+
+def test_failed_answer_is_an_error_for_mlflow_not_a_wrong_answer():
+    assistant = baseline(FakeLLM(error=TimeoutError("model timed out")))
+
+    with pytest.raises(AnswerFailed, match="model timed out"):
+        answer_fn(assistant)("Brent?")
