@@ -37,6 +37,17 @@ def to_positions(df: DataFrame) -> DataFrame:
     )
 
 
+def positions_in_zones(positions: DataFrame, zones: DataFrame, in_zone: Column) -> DataFrame:
+    """Positions inside a terminal zone, with its port_bk; positions outside every zone are dropped.
+
+    Only the columns the join needs are taken from the zones: ref_terminal_zone has its own loaded_at,
+    which would clash with the loaded_at of the position.
+    """
+    return positions.join(zones.select("port_bk", "boundary_wkt"), in_zone).select(
+        "mmsi", "event_ts", "port_bk", "sog", "nav_status", "loaded_at"
+    )
+
+
 def to_static(df: DataFrame) -> DataFrame:
     """ShipStaticData messages in the silver columns. 0 and blank values mean "not available" in AIS."""
     imo = _field("$.Message.ShipStaticData.ImoNumber", "int")

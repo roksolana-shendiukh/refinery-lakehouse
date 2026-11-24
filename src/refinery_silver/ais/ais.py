@@ -7,6 +7,7 @@ from refinery.silver.ais import (
     MMSI_MAP_CHECKS,
     POSITION_CHECKS,
     STATIC_CHECKS,
+    positions_in_zones,
     to_positions,
     to_static,
     to_vessel_mmsi_map,
@@ -42,11 +43,7 @@ def ais_zone_positions_checked():
     zones = spark.read.table("ref_terminal_zone")
     in_zone = F.expr("st_contains(st_geomfromwkt(boundary_wkt), st_point(longitude, latitude))")
     # Inner join: positions outside every terminal zone are not kept.
-    positions = (
-        to_positions(landing("PositionReport"))
-        .join(zones, in_zone)
-        .select("mmsi", "event_ts", "port_bk", "sog", "nav_status", "loaded_at")
-    )
+    positions = positions_in_zones(to_positions(landing("PositionReport")), zones, in_zone)
     checked = check(positions, POSITION_CHECKS, ENGINE)
     return checked.withWatermark("event_ts", DUPLICATE_WINDOW).dropDuplicatesWithinWatermark(["mmsi", "event_ts"])
 
