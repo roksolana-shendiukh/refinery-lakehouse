@@ -168,8 +168,7 @@ resources:
 
   experiments:
     rag_eval_experiment:
-      # One run per mode (with and without search) for every evaluation
-      name: ${workspace.root_path}/refinery-rag-eval
+      name: /Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}/refinery-rag-eval
 
 # The assistant app runs only in PROD: the bundle's app config cannot take
 # per-target values, so app.yaml holds the PROD names. In DEV the app is run locally.
