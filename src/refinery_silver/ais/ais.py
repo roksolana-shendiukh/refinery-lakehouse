@@ -1,6 +1,9 @@
 """Silver AIS tables and their quarantine tables. Runs in PROD only: the landing table exists only there."""
 
+from functools import reduce
+
 from pyspark import pipelines as dp
+from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
 from refinery.silver.ais import (
@@ -12,6 +15,7 @@ from refinery.silver.ais import (
     to_static,
     to_vessel_mmsi_map,
 )
+from refinery.silver.metrics import build_metrics_engine, summary_metrics
 from refinery.silver.quality import build_engine, check, quarantine, valid
 
 SOURCE = spark.conf.get("refinery.source_table")
@@ -22,6 +26,9 @@ QUALITY = spark.conf.get("refinery.quality_schema")
 DUPLICATE_WINDOW = "3 hours"
 
 ENGINE = build_engine(spark)
+
+# A position is inside a terminal zone when the zone polygon contains its point
+IN_ZONE = "st_contains(st_geomfromwkt(boundary_wkt), st_point(longitude, latitude))"
 
 
 def landing(message_type):
@@ -41,7 +48,7 @@ def define_quarantine(name, checked_view, cluster_by):
 @dp.temporary_view(name="ais_zone_positions_checked")
 def ais_zone_positions_checked():
     zones = spark.read.table("ref_terminal_zone")
-    in_zone = F.expr("st_contains(st_geomfromwkt(boundary_wkt), st_point(longitude, latitude))")
+    in_zone = F.expr(IN_ZONE)
     # Inner join: positions outside every terminal zone are not kept.
     positions = positions_in_zones(to_positions(landing("PositionReport")), zones, in_zone)
     checked = check(positions, POSITION_CHECKS, ENGINE)
@@ -114,3 +121,55 @@ def vessel_mmsi_map():
 )
 def vessel_mmsi_map_quarantine():
     return quarantine(spark.read.table("vessel_mmsi_map_checked"))
+
+
+# --- Tables for the data-quality dashboard ---
+
+METRICS_ENGINE = build_metrics_engine(spark)
+
+# vessel_mmsi_map changes only when a new IMO-MMSI pair appears, so its age says nothing about the producer
+FRESHNESS_TABLES = ["ais_zone_positions", "ais_vessel_static"]
+
+
+def positions_for_metrics():
+    """Checked positions as a batch over the landing table, so the metrics do not read the streaming views.
+
+    Same steps as ais_zone_positions_checked: the zone join, the checks, the deduplication.
+    """
+    landed = spark.read.table(SOURCE).where(F.col("message_type") == "PositionReport")
+    positions = positions_in_zones(to_positions(landed), spark.read.table("ref_terminal_zone"), F.expr(IN_ZONE))
+    return check(positions, POSITION_CHECKS, ENGINE).dropDuplicates(["mmsi", "event_ts"])
+
+
+def static_for_metrics():
+    """Checked static messages as a batch over the landing table: input rows are messages, not SCD2 versions."""
+    landed = spark.read.table(SOURCE).where(F.col("message_type") == "ShipStaticData")
+    return check(to_static(landed), STATIC_CHECKS, ENGINE)
+
+
+@dp.materialized_view(
+    name=f"{QUALITY}.dq_summary_metrics_latest_ais",
+    comment="DQX summary metrics of the last AIS silver run, one row per metric and table",
+)
+def dq_summary_metrics_latest_ais():
+    checked = {
+        "ais_zone_positions": (positions_for_metrics(), POSITION_CHECKS),
+        "ais_vessel_static": (static_for_metrics(), STATIC_CHECKS),
+        "vessel_mmsi_map": (spark.read.table("vessel_mmsi_map_checked"), MMSI_MAP_CHECKS),
+    }
+    metrics = [summary_metrics(df, checks, METRICS_ENGINE, table) for table, (df, checks) in checked.items()]
+    return reduce(DataFrame.unionByName, metrics)
+
+
+@dp.materialized_view(
+    name=f"{QUALITY}.dq_freshness_ais",
+    comment="Latest load and row count of the AIS silver tables that the producer feeds",
+)
+def dq_freshness_ais():
+    tables = [
+        spark.read.table(table)
+        .agg(F.max("loaded_at").alias("last_loaded_at"), F.count("*").alias("row_count"))
+        .select(F.lit(table).alias("table_name"), "last_loaded_at", "row_count")
+        for table in FRESHNESS_TABLES
+    ]
+    return reduce(DataFrame.unionByName, tables)

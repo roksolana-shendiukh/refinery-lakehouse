@@ -4,14 +4,14 @@
       "displayName": "last_run_totals",
       "name": "a1f00001",
       "queryLines": [
-        "WITH last AS (SELECT max_by(run_id, run_time) AS run_id FROM dq_summary_metrics)\n",
+        "WITH last AS (SELECT input_location, max_by(run_id, run_time) AS run_id FROM dq_summary_metrics GROUP BY input_location)\n",
         "SELECT\n",
         "  sum(CASE WHEN metric_name = 'error_row_count' THEN CAST(metric_value AS BIGINT) END) AS rejected_rows,\n",
         "  sum(CASE WHEN metric_name = 'warning_row_count' THEN CAST(metric_value AS BIGINT) END) AS warning_rows,\n",
         "  sum(CASE WHEN metric_name = 'input_row_count' THEN CAST(metric_value AS BIGINT) END) AS input_rows,\n",
         "  max(run_time) AS run_time\n",
         "FROM dq_summary_metrics m\n",
-        "JOIN last l ON m.run_id = l.run_id;"
+        "JOIN last l ON m.run_id = l.run_id AND m.input_location = l.input_location;"
       ]
     },
     {
@@ -38,22 +38,37 @@
       "displayName": "freshness",
       "name": "a1f00004",
       "queryLines": [
+        "WITH tables AS (\n",
+        "  SELECT table_name, last_loaded_at, row_count FROM dq_freshness\n",
+        "  UNION ALL\n",
+        "  SELECT table_name, last_loaded_at, row_count FROM dq_freshness_ais\n",
+        "),\n",
+        "aged AS (\n",
+        "  SELECT\n",
+        "    table_name,\n",
+        "    last_loaded_at,\n",
+        "    row_count,\n",
+        "    round(timestampdiff(MINUTE, last_loaded_at, current_timestamp()) / 60.0, 1) AS age_hours,\n",
+        "    CASE WHEN startswith(table_name, 'ais_') THEN 1 ELSE 192 END AS fresh_hours,\n",
+        "    CASE WHEN startswith(table_name, 'ais_') THEN 24 ELSE 360 END AS late_hours\n",
+        "  FROM tables\n",
+        ")\n",
         "SELECT\n",
         "  table_name,\n",
         "  last_loaded_at,\n",
-        "  timestampdiff(HOUR, last_loaded_at, current_timestamp()) AS age_hours,\n",
+        "  age_hours,\n",
         "  row_count,\n",
         "  CASE\n",
-        "    WHEN timestampdiff(HOUR, last_loaded_at, current_timestamp()) <= 192 THEN '🟢'\n",
-        "    WHEN timestampdiff(HOUR, last_loaded_at, current_timestamp()) <= 360 THEN '🟡'\n",
+        "    WHEN age_hours <= fresh_hours THEN '🟢'\n",
+        "    WHEN age_hours <= late_hours THEN '🟡'\n",
         "    ELSE '🔴'\n",
         "  END AS status,\n",
         "  CASE\n",
-        "    WHEN timestampdiff(HOUR, last_loaded_at, current_timestamp()) <= 192 THEN 'Fresh (up to 8 days)'\n",
-        "    WHEN timestampdiff(HOUR, last_loaded_at, current_timestamp()) <= 360 THEN 'Late (8 to 15 days)'\n",
-        "    ELSE 'Stale (over 15 days)'\n",
+        "    WHEN age_hours <= fresh_hours THEN 'Fresh'\n",
+        "    WHEN age_hours <= late_hours THEN 'Late'\n",
+        "    ELSE 'Stale'\n",
         "  END AS freshness\n",
-        "FROM dq_freshness\n",
+        "FROM aged\n",
         "ORDER BY last_loaded_at;"
       ]
     },
@@ -61,16 +76,16 @@
       "displayName": "last_run_by_table",
       "name": "a1f00005",
       "queryLines": [
-        "WITH last AS (SELECT max_by(run_id, run_time) AS run_id FROM dq_summary_metrics),\n",
+        "WITH last AS (SELECT input_location, max_by(run_id, run_time) AS run_id FROM dq_summary_metrics GROUP BY input_location),\n",
         "per_table AS (\n",
         "  SELECT\n",
-        "    input_location AS table_name,\n",
+        "    m.input_location AS table_name,\n",
         "    max(CASE WHEN metric_name = 'error_row_count' THEN CAST(metric_value AS BIGINT) END) AS rejected,\n",
         "    max(CASE WHEN metric_name = 'warning_row_count' THEN CAST(metric_value AS BIGINT) END) AS warned\n",
         "  FROM dq_summary_metrics m\n",
-        "  JOIN last l ON m.run_id = l.run_id\n",
+        "  JOIN last l ON m.run_id = l.run_id AND m.input_location = l.input_location\n",
         "  WHERE metric_name <> 'check_metrics'\n",
-        "  GROUP BY input_location\n",
+        "  GROUP BY m.input_location\n",
         ")\n",
         "SELECT table_name, stack(2, 'Rejected', rejected, 'Warning', warned) AS (kind, row_count)\n",
         "FROM per_table\n",
@@ -84,14 +99,25 @@
         "WITH runs AS (\n",
         "  SELECT\n",
         "    run_id,\n",
+        "    CASE\n",
+        "      WHEN max(CASE WHEN startswith(input_location, 'ais_') OR input_location = 'vessel_mmsi_map' THEN 1 ELSE 0 END) = 1\n",
+        "        THEN 'AIS'\n",
+        "      ELSE 'Batch'\n",
+        "    END AS source,\n",
         "    min(run_time) AS run_time,\n",
         "    sum(CASE WHEN metric_name = 'error_row_count' THEN CAST(metric_value AS BIGINT) END) AS rejected,\n",
         "    sum(CASE WHEN metric_name = 'warning_row_count' THEN CAST(metric_value AS BIGINT) END) AS warned\n",
         "  FROM dq_summary_metrics\n",
         "  GROUP BY run_id\n",
         ")\n",
-        "SELECT run_time, stack(2, 'Rejected (error)', rejected, 'Warning', warned) AS (kind, row_count)\n",
-        "FROM runs\n",
+        "SELECT\n",
+        "  date_format(run_time, 'yyyy-MM-dd HH:mm') AS run_label,\n",
+        "  concat(source, ': ', kind) AS kind,\n",
+        "  row_count\n",
+        "FROM (\n",
+        "  SELECT run_time, source, stack(2, 'rejected', rejected, 'warnings', warned) AS (kind, row_count)\n",
+        "  FROM runs\n",
+        ")\n",
         "ORDER BY run_time;"
       ]
     },
@@ -110,7 +136,7 @@
       "displayName": "top_failing_checks",
       "name": "a1f00008",
       "queryLines": [
-        "WITH last AS (SELECT max_by(run_id, run_time) AS run_id FROM dq_summary_metrics),\n",
+        "WITH last AS (SELECT input_location, max_by(run_id, run_time) AS run_id FROM dq_summary_metrics GROUP BY input_location),\n",
         "checks AS (\n",
         "  SELECT\n",
         "    m.input_location AS table_name,\n",
@@ -119,7 +145,7 @@
         "      'array<struct<check_name:string,error_count:bigint,warning_count:bigint,checked_count:bigint>>'\n",
         "    ) AS c\n",
         "  FROM dq_summary_metrics m\n",
-        "  JOIN last l ON m.run_id = l.run_id\n",
+        "  JOIN last l ON m.run_id = l.run_id AND m.input_location = l.input_location\n",
         "  WHERE m.metric_name = 'check_metrics'\n",
         ")\n",
         "SELECT\n",
@@ -139,7 +165,7 @@
       "displayName": "error_types_last_run",
       "name": "a1f0000a",
       "queryLines": [
-        "WITH last AS (SELECT max_by(run_id, run_time) AS run_id FROM dq_summary_metrics),\n",
+        "WITH last AS (SELECT input_location, max_by(run_id, run_time) AS run_id FROM dq_summary_metrics GROUP BY input_location),\n",
         "checks AS (\n",
         "  SELECT\n",
         "    from_json(\n",
@@ -147,7 +173,7 @@
         "      'array<struct<check_name:string,error_count:bigint,warning_count:bigint>>'\n",
         "    ) AS c\n",
         "  FROM dq_summary_metrics m\n",
-        "  JOIN last l ON m.run_id = l.run_id\n",
+        "  JOIN last l ON m.run_id = l.run_id AND m.input_location = l.input_location\n",
         "  WHERE m.metric_name = 'check_metrics'\n",
         "),\n",
         "flat AS (\n",
@@ -188,6 +214,12 @@
         "SELECT 'eia_supply' AS table_name, count_if(_errors IS NOT NULL) AS rejected_rows, count_if(_warnings IS NOT NULL) AS warning_rows FROM eia_supply_quarantine\n",
         "UNION ALL\n",
         "SELECT 'eia_price' AS table_name, count_if(_errors IS NOT NULL) AS rejected_rows, count_if(_warnings IS NOT NULL) AS warning_rows FROM eia_price_quarantine\n",
+        "UNION ALL\n",
+        "SELECT 'ais_zone_positions' AS table_name, count_if(_errors IS NOT NULL) AS rejected_rows, count_if(_warnings IS NOT NULL) AS warning_rows FROM ais_zone_positions_quarantine\n",
+        "UNION ALL\n",
+        "SELECT 'ais_vessel_static' AS table_name, count_if(_errors IS NOT NULL) AS rejected_rows, count_if(_warnings IS NOT NULL) AS warning_rows FROM ais_vessel_static_quarantine\n",
+        "UNION ALL\n",
+        "SELECT 'vessel_mmsi_map' AS table_name, count_if(_errors IS NOT NULL) AS rejected_rows, count_if(_warnings IS NOT NULL) AS warning_rows FROM vessel_mmsi_map_quarantine\n",
         ")\n",
         "ORDER BY table_name;"
       ]
@@ -527,15 +559,15 @@
                     "type": "categorical",
                     "mappings": [
                       {
-                        "value": "Fresh (up to 8 days)",
+                        "value": "Fresh",
                         "color": "#4CAF74"
                       },
                       {
-                        "value": "Late (8 to 15 days)",
+                        "value": "Late",
                         "color": "#D9962B"
                       },
                       {
-                        "value": "Stale (over 15 days)",
+                        "value": "Stale",
                         "color": "#D64545"
                       }
                     ]
@@ -545,7 +577,9 @@
               },
               "frame": {
                 "showTitle": true,
-                "title": "How fresh is each table (hours since last load)"
+                "title": "How fresh is each table (hours since last load)",
+                "showDescription": true,
+                "description": "EIA and reference tables are late after 8 days and stale after 15. AIS tables are late after 1 hour and stale after 24 hours: AIS data arrives only while the producer runs."
               }
             }
           }
@@ -648,8 +682,8 @@
                   "disaggregated": true,
                   "fields": [
                     {
-                      "name": "run_time",
-                      "expression": "`run_time`"
+                      "name": "run_label",
+                      "expression": "`run_label`"
                     },
                     {
                       "name": "kind",
@@ -665,14 +699,14 @@
             ],
             "spec": {
               "version": 3,
-              "widgetType": "line",
+              "widgetType": "bar",
               "encodings": {
                 "x": {
-                  "fieldName": "run_time",
+                  "fieldName": "run_label",
                   "scale": {
-                    "type": "temporal"
+                    "type": "categorical"
                   },
-                  "displayName": "Run time",
+                  "displayName": "Run",
                   "axis": {
                     "hideTitle": true
                   }
@@ -694,12 +728,20 @@
                     "type": "categorical",
                     "mappings": [
                       {
-                        "value": "Rejected (error)",
+                        "value": "Batch: rejected",
                         "color": "#D64545"
                       },
                       {
-                        "value": "Warning",
+                        "value": "Batch: warnings",
                         "color": "#D9962B"
+                      },
+                      {
+                        "value": "AIS: rejected",
+                        "color": "#F28B82"
+                      },
+                      {
+                        "value": "AIS: warnings",
+                        "color": "#F2C14E"
                       }
                     ]
                   }
@@ -707,7 +749,9 @@
               },
               "frame": {
                 "showTitle": true,
-                "title": "Rejected and warning rows per run"
+                "title": "Rejected and warning rows per run",
+                "showDescription": true,
+                "description": "Batch = EIA and reference tables (weekly job). AIS = live tables. Each run is one pipeline update."
               }
             }
           }
