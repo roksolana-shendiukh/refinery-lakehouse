@@ -38,8 +38,8 @@ variables:
     description: Application ID of the assistant app's service principal, which queries the index and writes the request log
     default: ""
   eval_judge_model:
-    description: Model serving endpoint of the evaluation judges (databricks:/<endpoint>); empty = Databricks-hosted judges
-    default: ""
+    description: Model serving endpoint of the evaluation judges (databricks:/<endpoint>), or built-in for the Databricks-hosted judges
+    default: built-in
 
 targets:
   dev:
