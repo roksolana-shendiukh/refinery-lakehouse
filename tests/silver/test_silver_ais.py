@@ -10,6 +10,7 @@ from refinery.silver.ais import (
     MMSI_MAP_CHECKS,
     POSITION_CHECKS,
     STATIC_CHECKS,
+    positions_in_zones,
     to_positions,
     to_static,
     to_vessel_mmsi_map,
@@ -163,6 +164,34 @@ def test_not_available_static_values_become_null(spark):
     row = static(spark, imo=0, name="   ", ship_type=0, to_bow=0, to_stern=0, draught=0)
 
     assert (row.imo, row.vessel_name, row.ship_type, row.length_m, row.draught) == (None, None, None, None, None)
+
+
+def zone_join_inputs(spark):
+    """A position and a terminal zone with the columns of the real ref_terminal_zone, loaded_at included."""
+    positions = spark.createDataFrame(
+        [(244000000, EVENT_TS, 51.9, 4.1, Decimal("11.2"), 0, LOADED_AT)],
+        "mmsi int, event_ts timestamp, latitude double, longitude double, sog decimal(4,1), nav_status smallint,"
+        " loaded_at timestamp",
+    )
+    zones = spark.createDataFrame(
+        [("NLRTM", "Rotterdam", "POLYGON ((0 0, 1 0, 1 1, 0 0))", datetime(2026, 11, 1), "reference.csv")],
+        "port_bk string, port_name string, boundary_wkt string, loaded_at timestamp, source_file string",
+    )
+    return positions, zones
+
+
+def test_position_in_zone_keeps_its_own_loaded_at(spark):
+    positions, zones = zone_join_inputs(spark)
+    result = positions_in_zones(positions, zones, F.col("latitude") > 0)
+    assert result.columns == ["mmsi", "event_ts", "port_bk", "sog", "nav_status", "loaded_at"]
+    row = result.first()
+    assert row.port_bk == "NLRTM"
+    assert row.loaded_at == LOADED_AT
+
+
+def test_position_outside_every_zone_is_dropped(spark):
+    positions, zones = zone_join_inputs(spark)
+    assert positions_in_zones(positions, zones, F.col("latitude") < 0).count() == 0
 
 
 # --- ais_zone_positions: checks ---
