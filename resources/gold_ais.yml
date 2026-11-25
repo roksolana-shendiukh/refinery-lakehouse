@@ -43,3 +43,20 @@ targets:
                 parameters:
                   catalog: ${var.catalog}
                   gold_schema: ${resources.schemas.gold.name}
+            - task_key: save_ais_dq_metrics
+              depends_on:
+                - task_key: refresh_ais_silver
+              environment_key: default
+              spark_python_task:
+                python_file: ../src/refinery_silver/save_dq_metrics.py
+                parameters:
+                  - --latest
+                  - ${var.catalog}.${resources.schemas.quality.name}.dq_summary_metrics_latest_ais
+                  - --history
+                  - ${var.catalog}.${resources.schemas.quality.name}.dq_summary_metrics
+          environments:
+            - environment_key: default
+              spec:
+                environment_version: "5"
+                dependencies:
+                  - ../dist/*.whl
