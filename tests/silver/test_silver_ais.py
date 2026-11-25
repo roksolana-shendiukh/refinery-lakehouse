@@ -108,6 +108,23 @@ def test_position_values_and_event_time(spark):
     assert (str(row.sog), row.nav_status) == ("11.2", 0)
 
 
+@pytest.mark.parametrize(
+    ("time_utc", "expected"),
+    [
+        ("2026-11-22 18:09:39.46628 +0000 UTC", "2026-11-22 18:09:39.466280"),
+        ("2026-11-08 14:27:13.375 +0000 UTC", "2026-11-08 14:27:13.375000"),
+        ("2026-11-08 14:27:13 +0000 UTC", "2026-11-08 14:27:13.000000"),
+        ("2026-11-08 14:27:52.3317830 +0000 UTC", "2026-11-08 14:27:52.331783"),
+    ],
+)
+def test_event_time_with_any_number_of_fraction_digits(spark, time_utc, expected):
+    """The producer drops trailing zeros, so the fraction has from none to nine digits."""
+    positions = to_positions(landing(spark, ("PositionReport", position_message(time_utc=time_utc))))
+    row = positions.select(F.date_format("event_ts", "yyyy-MM-dd HH:mm:ss.SSSSSS").alias("event_ts")).first()
+
+    assert row.event_ts == expected
+
+
 def test_only_position_reports_are_kept(spark):
     messages = landing(
         spark,

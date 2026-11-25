@@ -16,9 +16,16 @@ def _mmsi() -> Column:
 
 
 def _event_ts() -> Column:
-    # time_utc looks like "2026-11-08 14:27:52.331783091 +0000 UTC": the first 26 characters are the time.
+    """Event time from time_utc, e.g. "2026-11-08 14:27:52.331783091 +0000 UTC"; NULL when it cannot be read.
+
+    The producer prints the time in Go style, which drops trailing zeros: the fraction can have anywhere from
+    none to nine digits. It is padded or cut to microseconds before parsing.
+    """
     time_utc = _field("$.MetaData.time_utc", "string")
-    return F.try_to_timestamp(F.substring(time_utc, 1, 26), F.lit("yyyy-MM-dd HH:mm:ss.SSSSSS"))
+    pattern = r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?"
+    seconds = F.regexp_extract(time_utc, pattern, 1)
+    micros = F.rpad(F.regexp_extract(time_utc, pattern, 2), 6, "0")
+    return F.try_to_timestamp(F.concat(seconds, F.lit("."), micros), F.lit("yyyy-MM-dd HH:mm:ss.SSSSSS"))
 
 
 def to_positions(df: DataFrame) -> DataFrame:
