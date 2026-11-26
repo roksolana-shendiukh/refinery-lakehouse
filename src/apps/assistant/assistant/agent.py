@@ -61,6 +61,17 @@ def assistant_message(message):
     }
 
 
+def final_answer(content, found):
+    """The model's text, or the refusal when no search found passages for the answer to rest on."""
+    answer = (content or "").strip()
+    if not answer:
+        return REFUSAL
+    if not found and answer != REFUSAL:
+        logger.warning("Answer without search passages replaced by the refusal: %.80s", answer)
+        return REFUSAL
+    return answer
+
+
 class Agent:
     def __init__(self, llm, model, search, max_iterations=3, today=None, clock=time.monotonic):
         self.llm = llm  # OpenAI-compatible client (WorkspaceModels in the app)
@@ -117,7 +128,7 @@ class Agent:
 
             message = response.choices[0].message
             if not message.tool_calls:
-                return (message.content or "").strip() or REFUSAL, False
+                return final_answer(message.content, found=bool(state["chunks"])), False
             if last:
                 return REFUSAL, True
 
