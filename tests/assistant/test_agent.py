@@ -198,7 +198,16 @@ def test_answer_after_a_search_is_kept():
     assert agent(llm).ask("Brent?").answer == ANSWER
 
 
+def test_answer_after_searches_that_found_nothing_is_replaced_by_the_refusal():
+    llm = FakeLLM(reply(tool_calls=[tool_call({"query": "Brent forecast"})]), reply(ANSWER))
+
+    result = agent(llm, FakeSearch(chunks=())).ask("What is the Brent price forecast?")
+
+    assert result.answer == REFUSAL
+    assert len(result.tool_calls) == 1
+
+
 def test_final_answer_keeps_the_refusal_and_fills_an_empty_answer():
-    assert final_answer(REFUSAL, searched=False) == REFUSAL
-    assert final_answer("  ", searched=True) == REFUSAL
-    assert final_answer(ANSWER, searched=True) == ANSWER
+    assert final_answer(REFUSAL, found=False) == REFUSAL
+    assert final_answer("  ", found=True) == REFUSAL
+    assert final_answer(f"  {ANSWER}\n", found=True) == ANSWER

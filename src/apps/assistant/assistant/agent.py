@@ -14,7 +14,7 @@ from openai import OpenAI
 
 from assistant.prompts import REFUSAL, answer_sources, system_prompt
 from assistant.retrieval import ArticleSearch
-from assistant.tools import SEARCH_TOOL_NAME, TOOLS, run_tool
+from assistant.tools import TOOLS, run_tool
 
 logger = logging.getLogger(__name__)
 
@@ -61,13 +61,13 @@ def assistant_message(message):
     }
 
 
-def final_answer(content, searched):
-    """The model's text, or the refusal when the answer rests on no search."""
+def final_answer(content, found):
+    """The model's text, or the refusal when no search found passages for the answer to rest on."""
     answer = (content or "").strip()
     if not answer:
         return REFUSAL
-    if not searched and answer != REFUSAL:
-        logger.warning("Answer without a search replaced by the refusal: %.80s", answer)
+    if not found and answer != REFUSAL:
+        logger.warning("Answer without search passages replaced by the refusal: %.80s", answer)
         return REFUSAL
     return answer
 
@@ -128,8 +128,7 @@ class Agent:
 
             message = response.choices[0].message
             if not message.tool_calls:
-                searched = any(call.name == SEARCH_TOOL_NAME for call in state["tool_calls"])
-                return final_answer(message.content, searched), False
+                return final_answer(message.content, found=bool(state["chunks"])), False
             if last:
                 return REFUSAL, True
 
